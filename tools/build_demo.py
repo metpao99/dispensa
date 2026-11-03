@@ -124,7 +124,25 @@ async function api(method, path, body, blob){
   if (path === "/api/recipes" && method === "POST"){
     needUser();
     const sm = await demoSampleP; if (!sm) demoErr(400, "Ricette non disponibili in questa anteprima");
-    const [prompt, n] = demoPrompt(Object.values(db.items)); if (!n) demoErr(400, "Nessun prodotto in scadenza nei prossimi 7 giorni");
+    let prompt, n;
+    if (Array.isArray(body.scelti)){           // scheda Ricette: prodotti spuntati
+      const all = Object.entries(db.items).map(([id, v]) => ({ ...v, id })).filter(i => (+i.qty || 0) > 0);
+      const ids = new Set(body.scelti.map(String)), chosen = all.filter(i => ids.has(i.id));
+      if (!chosen.length) demoErr(400, "Spunta almeno un prodotto disponibile");
+      const wish = String(body.richiesta || "").trim().slice(0, 300);
+      prompt = `Sei un aiuto in cucina per una casa italiana. Proponi 3 ricette casalinghe per 2 persone costruite intorno ai prodotti che ho scelto.
+Prodotti scelti (da usare):
+${chosen.map(i => "- " + i.name).join("\n")}
+Altri prodotti disponibili in casa (usali solo se servono):
+${all.filter(i => !ids.has(i.id)).slice(0, 60).map(i => "- " + i.name).join("\n") || "- (nient'altro)"}
+${wish ? "Le mie richieste: " + wish : ""}
+Regole: ogni ricetta usa più prodotti scelti possibile (almeno uno); dai per scontati sale, pepe, olio, aceto e acqua; elenca solo gli ingredienti che mancano davvero. Passi brevi e pratici.
+Rispondi SOLO con JSON valido, senza testo prima o dopo, in questa forma:
+{"ricette":[{"titolo":"...","tempo":"25 min","perche":"una frase su come usa i prodotti scelti","usa":["nomi esatti dei prodotti di casa usati"],"mancano":["ingredienti da comprare"],"passi":["...","..."]}]}`;
+      n = chosen.length;
+    } else {
+      [prompt, n] = demoPrompt(Object.values(db.items)); if (!n) demoErr(400, "Nessun prodotto in scadenza nei prossimi 7 giorni");
+    }
     try {
       const data = await sm.json(prompt, { cache: !body.nuove });
       return { ricette: (data.ricette || []).filter(r => r && r.titolo).slice(0, 5).map(demoClean) };

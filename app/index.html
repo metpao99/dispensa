@@ -64,6 +64,23 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .tag.bad{background:var(--bad-bg);color:var(--bad)} .tag.out{background:var(--line);color:var(--fg)}
 .empty{border:1.5px dashed var(--line);border-radius:8px;padding:28px 18px;text-align:center;color:var(--muted)}
 .empty strong{display:block;color:var(--fg);font-size:1.05rem;margin-bottom:4px}
+/* scheda Ricette: prodotti da spuntare */
+.picklist{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.pickgroup{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:12px 0 2px}
+.pick{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;cursor:pointer;user-select:none;-webkit-user-select:none;transition:border-color .2s,background .2s}
+.pick input{position:absolute;opacity:0;pointer-events:none;width:1px}
+.pick .tick{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;transition:background .2s,border-color .2s,transform .25s cubic-bezier(.34,1.5,.5,1)}
+.pick .tick svg{width:14px;height:14px;opacity:0;color:var(--accent-fg)}
+.pick.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--card))}
+.pick.on .tick{background:var(--accent);border-color:var(--accent);transform:scale(1.06)}
+.pick.on .tick svg{opacity:1}
+.pick .pn{flex:1;min-width:0}
+.pick .pn b{display:block;font-weight:600;overflow-wrap:anywhere}
+.pick .pn small{color:var(--muted);font-size:.78rem}
+.pickbar{position:sticky;bottom:calc(84px + env(safe-area-inset-bottom));margin-top:14px;padding:10px;border-radius:18px;display:flex;gap:8px;align-items:center;z-index:3}
+.pickbar .btn{flex:1}
+.pickcount{font-size:.82rem;color:var(--muted);padding:0 4px;white-space:nowrap}
+#recipesView .tools{margin-bottom:0}
 /* schermata di aggiornamento */
 .updover{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:24px;background:rgba(10,12,8,.35);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);animation:updin .3s ease-out}
 .updcard{width:min(300px,100%);border-radius:28px;padding:28px 22px 20px;text-align:center;position:relative}
@@ -89,16 +106,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .glass::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;
   background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,.06) 45%,rgba(255,255,255,0) 60%,rgba(255,255,255,.1))}
 .tabs-pill{display:flex;padding:4px}
-.tabbtn{position:relative;z-index:1;width:92px;height:54px;border:0;background:none;border-radius:99px;color:var(--fg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:600 .68rem var(--sans);letter-spacing:.01em;cursor:pointer;transition:color .25s,transform .35s cubic-bezier(.32,.72,0,1)}
+.tabbtn{position:relative;z-index:1;width:80px;height:54px;border:0;background:none;border-radius:99px;color:var(--fg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:600 .68rem var(--sans);letter-spacing:.01em;cursor:pointer;transition:color .25s,transform .35s cubic-bezier(.32,.72,0,1)}
 .tabbtn svg{width:25px;height:25px}
 .tabbtn[aria-selected="true"]{color:var(--accent)}
 .tabbtn:active{transform:scale(.92)}
-.lens{position:absolute;top:4px;left:4px;width:92px;height:54px;border-radius:99px;z-index:0;
+.lens{position:absolute;top:4px;left:4px;width:80px;height:54px;border-radius:99px;z-index:0;
   background:color-mix(in srgb,var(--fg) 9%,transparent);box-shadow:inset 0 1px 1px rgba(255,255,255,.35);
   transition:transform .5s cubic-bezier(.34,1.35,.5,1)}
-.tabs-pill[data-tab="menu"] .lens{transform:translateX(92px)}
+.tabs-pill[data-tab="recipes"] .lens{transform:translateX(80px)}
+.tabs-pill[data-tab="menu"] .lens{transform:translateX(160px)}
 .tabs-pill.press .lens{transform:scale(1.08)}
-.tabs-pill.press[data-tab="menu"] .lens{transform:translateX(92px) scale(1.08)}
+.tabs-pill.press[data-tab="recipes"] .lens{transform:translateX(80px) scale(1.08)}
+.tabs-pill.press[data-tab="menu"] .lens{transform:translateX(160px) scale(1.08)}
 .fab{width:62px;height:62px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--accent-fg);
   background:color-mix(in srgb,var(--accent) 82%,transparent);transition:transform .35s cubic-bezier(.32,.72,0,1),opacity .25s}
 .fab svg{width:27px;height:27px}
@@ -254,6 +273,10 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5 12 4l8 5.5V20H4z"/><path d="M4 13h16M9 13v3h6v-3"/></svg>
       <span>Dispensa</span>
     </button>
+    <button class="tabbtn" id="recipesTab" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11h16v2a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7z"/><path d="M2 11h2M20 11h2"/><path d="M9 7.5c0-1.2 1-1.5 1-2.7M13 7.5c0-1.2 1-1.5 1-2.7"/></svg>
+      <span>Ricette</span>
+    </button>
     <button class="tabbtn" id="menuBtn" role="tab" aria-selected="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="8" cy="12" r=".6" fill="currentColor"/><circle cx="12" cy="12" r=".6" fill="currentColor"/><circle cx="16" cy="12" r=".6" fill="currentColor"/></svg>
       <span>Menu</span>
@@ -265,7 +288,28 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
   </button>
 </nav>
 
-<!-- menu: seconda scheda della barra in basso -->
+<!-- ricette: spunti i prodotti e l'AI propone le ricette -->
+<div class="wrap view" id="recipesView" hidden>
+  <header>
+    <div><h1>Ricette</h1><p class="count" id="pickInfo"></p></div>
+    <div class="hright"><button class="userchip" id="bookBtn2" type="button">Ricettario</button></div>
+  </header>
+  <p>Spunta quello che vuoi usare: l'assistente ti propone le ricette.</p>
+  <div class="tools">
+    <input id="pickQ" type="search" placeholder="Cerca tra i prodotti" aria-label="Cerca tra i prodotti">
+  </div>
+  <div class="picklist" id="pickList"></div>
+  <label class="section-label" for="pickWish" style="display:block">Richieste (facoltativo)</label>
+  <input id="pickWish" maxlength="200" placeholder="es. veloce, vegetariana, al forno" style="margin-top:8px">
+  <div class="recipes" id="pickResults"></div>
+  <div class="glass pickbar">
+    <span class="pickcount" id="pickCount">0 scelti</span>
+    <button class="btn" type="button" id="pickClear">Azzera</button>
+    <button class="btn primary" type="button" id="pickGo">Suggerisci ricette</button>
+  </div>
+</div>
+
+<!-- menu: terza scheda della barra in basso -->
 <div class="wrap view" id="menuView" hidden>
   <header><h1 id="menuTitle">Menu</h1></header>
     <p>La dispensa è salvata sul NAS ed è condivisa. Il backup esporta tutto in un file .json; “Importa backup” serve anche a portare qui i prodotti della vecchia versione.</p>

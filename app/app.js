@@ -129,22 +129,25 @@ document.addEventListener("keydown", e => {
 });
 
 /* ---------------- barra in basso: schede Dispensa / Menu ---------------- */
-const tabScroll = { home: 0, menu: 0 };
+const tabScroll = { home: 0, recipes: 0, menu: 0 };
 let tab = "home";
 function showTab(name){
   if (name === tab) return;
   tabScroll[tab] = window.scrollY;
   tab = name;
-  const views = { home: $("homeView"), menu: $("menuView") };
+  const views = { home: $("homeView"), recipes: $("recipesView"), menu: $("menuView") };
   for (const k in views){ views[k].hidden = k !== name; views[k].classList.toggle("enter", k === name); }
   $("homeTab").setAttribute("aria-selected", name === "home");
+  $("recipesTab").setAttribute("aria-selected", name === "recipes");
   $("menuBtn").setAttribute("aria-selected", name === "menu");
+  if (name === "recipes") renderPick();
   document.querySelector(".tabs-pill").dataset.tab = name;
   $("scanBtn").classList.toggle("off", name !== "home");
   window.scrollTo(0, tabScroll[name]);
 }
 const toTop = () => window.scrollTo({ top: 0, behavior: "smooth" });   // ritocco della scheda già aperta: torna su
 $("homeTab").onclick = () => tab === "home" ? toTop() : showTab("home");
+$("recipesTab").onclick = () => tab === "recipes" ? toTop() : showTab("recipes");
 { // la "lente" si gonfia leggermente mentre tieni premuto, come in iOS
   const pill = document.querySelector(".tabs-pill");
   pill.addEventListener("pointerdown", () => pill.classList.add("press"));
@@ -766,6 +769,73 @@ $("recipeClose").onclick = () => closeSheet("recipeSheet");
 $("recipeSheet").onclick = e => { if (e.target.id === "recipeSheet") closeSheet("recipeSheet"); };
 $("bookBtn").onclick = showBook;
 
+/* ---------------- scheda Ricette: spunti i prodotti, l'AI propone ---------------- */
+const picked = new Set();
+let pickQuery = "";
+const usable = () => items.filter(i => Number(i.qty) > 0 && (daysLeft(i.exp) ?? 0) >= 0);
+function renderPick(){
+  const avail = usable(), ids = new Set(avail.map(i => i.id));
+  for (const id of [...picked]) if (!ids.has(id)) picked.delete(id);     // finiti o scaduti nel frattempo
+  const list = $("pickList"); list.textContent = "";
+  const q = pickQuery.toLowerCase();
+  const rows = avail.filter(i => !q || (i.name + " " + (i.cat || "")).toLowerCase().includes(q));
+  $("pickInfo").textContent = avail.length ? `${avail.length} prodotti disponibili` : "";
+  if (!avail.length) list.append(el("div", "empty", "Non ci sono prodotti disponibili: aggiungili dalla scheda Dispensa."));
+  else if (!rows.length) list.append(el("div", "empty", "Nessun prodotto con questo nome."));
+  for (const sp of spaces){
+    const mine = rows.filter(i => spaceOf(i) === sp.id).sort((a, b) => a.name.localeCompare(b.name, "it"));
+    if (!mine.length) continue;
+    list.append(el("div", "pickgroup", sp.name));
+    for (const it of mine){
+      const lab = el("label", "pick" + (picked.has(it.id) ? " on" : ""));
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(it.id);
+      const tick = el("span", "tick");
+      tick.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+      const pn = el("span", "pn"); pn.append(el("b", null, it.name));
+      const d = daysLeft(it.exp), bits = [it.cat, d != null && d <= 7 ? (d === 0 ? "scade oggi" : d === 1 ? "scade domani" : `scade tra ${d} giorni`) : ""].filter(Boolean);
+      if (bits.length) pn.append(el("small", null, bits.join(" · ")));
+      cb.onchange = () => { cb.checked ? picked.add(it.id) : picked.delete(it.id); lab.classList.toggle("on", cb.checked); pickCount(); };
+      lab.append(cb, tick, pn); list.append(lab);
+    }
+  }
+  pickCount();
+}
+function pickCount(){
+  const n = picked.size;
+  $("pickCount").textContent = n === 1 ? "1 scelto" : `${n} scelti`;
+  $("pickGo").disabled = !n; $("pickClear").disabled = !n;
+  $("pickGo").textContent = aiOn ? "Suggerisci ricette" : "Chiedi a " + ASSISTANTS[assistant()].label;
+}
+$("pickQ").oninput = e => { pickQuery = e.target.value; renderPick(); };
+$("pickClear").onclick = () => { picked.clear(); renderPick(); };
+$("bookBtn2").onclick = showBook;
+$("pickGo").onclick = async () => {
+  const chosen = items.filter(i => picked.has(i.id)); if (!chosen.length) return;
+  const wish = $("pickWish").value.trim();
+  if (!aiOn){      // senza AI sul NAS: apre Claude/ChatGPT con la domanda già scritta
+    const others = usable().filter(i => !picked.has(i.id)).map(i => i.name).slice(0, 40);
+    let text = "Proponi 3 ricette casalinghe per 2 persone che usino questi prodotti: " + chosen.map(i => i.name).join(", ") + ".";
+    if (others.length) text += " In casa ho anche: " + others.join(", ") + ".";
+    if (wish) text += " Richieste: " + wish + ".";
+    text += " Do per scontati sale, olio, pepe. Per ogni ricetta: tempo, ingredienti da comprare e passi brevi.";
+    const a = document.createElement("a"); a.href = ASSISTANTS[assistant()].url(text); a.target = "_blank"; a.rel = "noopener";
+    document.body.append(a); a.click(); a.remove(); return;
+  }
+  const out = $("pickResults"), btn = $("pickGo"); out.textContent = "";
+  const st = el("div", "thinking", "Cerco qualche ricetta con quello che hai scelto…"); out.append(st);
+  btn.disabled = true; st.scrollIntoView({ behavior: "smooth", block: "center" });
+  try {
+    await loadSaved();
+    const r = await api("POST", "/api/recipes", { scelti: chosen.map(i => i.id), richiesta: wish });
+    st.remove();
+    if (!r.ricette.length) out.append(el("div", "status", "Nessuna idea questa volta: riprova o cambia i prodotti."));
+    else { out.append(el("div", "section-label", "Ricette suggerite")); r.ricette.forEach(x => out.append(recipeCard(x, false))); }
+    out.firstElementChild && out.firstElementChild.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) {
+    st.className = "status err"; st.textContent = e instanceof AuthError ? "Scegli prima chi sei." : (e.message || "Ricette non disponibili ora.");
+  } finally { btn.disabled = !picked.size; }
+};
+
 /* ---------------- ambienti ---------------- */
 function openSpaceSheet(){ $("s-name").value = ""; openSheet("spaceSheet"); setTimeout(() => $("s-name").focus(), 80); }
 $("spaceCancel").onclick = () => closeSheet("spaceSheet");
@@ -903,6 +973,7 @@ function visible(){
 }
 function render(){
   renderTabs(); renderFab();
+  if (tab === "recipes") renderPick();
   const sp = curSpace(), mine = here();
   $("appTitle").textContent = sp.name;
   const cats = [...new Set(mine.map(i => i.cat).filter(Boolean))].sort((a, b) => a.localeCompare(b, "it"));

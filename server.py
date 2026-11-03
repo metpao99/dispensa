@@ -18,7 +18,8 @@ API
   POST   /api/spaces         {"name": "..."} aggiunge un ambiente (Dispensa, Frigo…)
   PATCH  /api/spaces         {"id": "...", "name": "..."} rinomina
   DELETE /api/spaces/<id>    rimuove un ambiente vuoto
-  POST   /api/recipes        idee di ricette con ciò che scade (serve ai-key.txt)
+  POST   /api/recipes        idee di ricette con ciò che scade; con {"scelti": [id…], "richiesta": "..."}
+                             ricette con i prodotti spuntati nella scheda Ricette (serve l'AI)
   GET    /api/saved-recipes  ricettario; PUT/DELETE /api/saved-recipes/<id>
   GET    /api/push/key | /api/push/settings, POST /api/push/settings | subscribe | unsubscribe | test
   GET    /api/alerts         testo dell'avviso per chi chiede (usato dal service worker)
@@ -186,6 +187,29 @@ Regole: ogni ricetta usa almeno un prodotto in scadenza, preferendo quelli più 
 
 Rispondi SOLO con JSON valido, senza testo prima o dopo, in questa forma:
 {{"ricette":[{{"titolo":"...","tempo":"25 min","perche":"una frase su cosa salva dalla scadenza","usa":["nomi esatti dei prodotti di casa usati"],"mancano":["ingredienti da comprare"],"passi":["...","..."]}}]}}""", len(soon)
+
+
+def pick_prompt(chosen, others, wish=""):
+    """Ricette con i prodotti scelti dalla persona (scheda Ricette). chosen/others: liste di dict."""
+    def line(it):
+        d = days_left(it.get("exp"))
+        extra = f" · scade tra {d} giorni" if d is not None and 0 <= d <= 7 else ""
+        return f"- {it['name']}{extra}"
+    lines_chosen = "\n".join(line(it) for it in chosen)
+    lines_other = "\n".join(f"- {it['name']}" for it in others[:60]) or "- (nient'altro)"
+    wish = re.sub(r"\s+", " ", wish or "").strip()[:300]
+    return f"""Sei un aiuto in cucina per una casa italiana. Proponi 3 ricette casalinghe per 2 persone costruite intorno ai prodotti che ho scelto.
+
+Prodotti scelti (da usare):
+{lines_chosen}
+
+Altri prodotti disponibili in casa (usali solo se servono):
+{lines_other}
+{"" if not wish else chr(10) + "Le mie richieste: " + wish + chr(10)}
+Regole: ogni ricetta usa più prodotti scelti possibile (almeno uno); se un prodotto scelto è vicino alla scadenza, dagli la precedenza; dai per scontati sale, pepe, olio, aceto e acqua; elenca solo gli ingredienti che mancano davvero. Passi brevi e pratici.
+
+Rispondi SOLO con JSON valido, senza testo prima o dopo, in questa forma:
+{{"ricette":[{{"titolo":"...","tempo":"25 min","perche":"una frase su come usa i prodotti scelti","usa":["nomi esatti dei prodotti di casa usati"],"mancano":["ingredienti da comprare"],"passi":["...","..."]}}]}}"""
 
 
 def parse_recipes(text):
@@ -917,11 +941,22 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if not engine_for(u):
                     return self.send_json(400, {"error": "Ricette non attive: collega l'AI in Menu › Intelligenza artificiale"})
+                body = self.read_json()
                 with _lock:
-                    rows = db().execute("SELECT data FROM items").fetchall()
-                prompt, n = recipe_prompt([json.loads(r["data"]) for r in rows])
-                if not n:
-                    return self.send_json(400, {"error": "Nessun prodotto in scadenza nei prossimi 7 giorni"})
+                    rows = db().execute("SELECT id, data FROM items").fetchall()
+                every = [dict(json.loads(r["data"]), id=r["id"]) for r in rows]
+                scelti = body.get("scelti")
+                if isinstance(scelti, list):          # scheda Ricette: prodotti spuntati dalla persona
+                    ids = {str(x) for x in scelti[:40]}
+                    usable = [it for it in every if int(it.get("qty") or 0) > 0 and (days_left(it.get("exp")) or 0) >= 0]
+                    chosen = [it for it in usable if it["id"] in ids]
+                    if not chosen:
+                        return self.send_json(400, {"error": "Spunta almeno un prodotto disponibile"})
+                    prompt = pick_prompt(chosen, [it for it in usable if it["id"] not in ids], str(body.get("richiesta") or ""))
+                else:                                 # idee per cosa scade
+                    prompt, n = recipe_prompt(every)
+                    if not n:
+                        return self.send_json(400, {"error": "Nessun prodotto in scadenza nei prossimi 7 giorni"})
                 try:
                     return self.send_json(200, {"ricette": parse_recipes(generate(u, prompt))})
                 except AIError as e:

@@ -48,7 +48,8 @@ regola del codice a barre). L'AI passa sempre da `generate()` nel server.
 - Pannelli (`.sheet`): aprili e chiudili con `openSheet(id)` / `closeSheet(id)`, non con `.hidden`,
   così hanno l'animazione e il gesto "tira giù per chiudere". Se la chiusura deve fare altro, registrala
   in `sheetClosers[id]` (es. `closeForm` per la scheda prodotto).
-- Navigazione: barra in basso con due schede, `homeView` e `menuView`; si cambia con `showTab("home"|"menu")`.
+- Navigazione: barra in basso con tre schede, `homeView`, `recipesView` (ricette dai prodotti spuntati) e `menuView`;
+  si cambia con `showTab("home"|"recipes"|"menu")`.
 
 ## Pubblicare una modifica
 1. Prova in locale su un'altra porta, con una **copia** del database:
