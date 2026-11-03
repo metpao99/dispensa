@@ -10,6 +10,7 @@
 try { var t = JSON.parse(localStorage.getItem("dispensa-theme-vars") || "null");
   if (t) { for (var k in t.vars) document.documentElement.style.setProperty("--" + k, t.vars[k]);
     document.documentElement.style.colorScheme = t.dark ? "dark" : "light";
+    if (t.dark) document.documentElement.setAttribute("data-dark", "");
     document.getElementById("themeColor").setAttribute("content", t.vars.bg); } } catch (e) {}
 </script>
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -34,7 +35,7 @@ try { var t = JSON.parse(localStorage.getItem("dispensa-theme-vars") || "null");
 [hidden]{display:none!important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
-.wrap{max-width:640px;margin:0 auto;padding:calc(14px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(110px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.wrap{max-width:640px;margin:0 auto;padding:calc(14px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(104px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 header{display:flex;align-items:center;justify-content:space-between;gap:12px}
 h1{font-weight:800;font-size:1.9rem;letter-spacing:-.02em;margin:0}
 .iconbtn{background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:40px;height:40px;display:grid;place-items:center;cursor:pointer}
@@ -62,15 +63,52 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .tag.bad{background:var(--bad-bg);color:var(--bad)} .tag.out{background:var(--line);color:var(--fg)}
 .empty{border:1.5px dashed var(--line);border-radius:8px;padding:28px 18px;text-align:center;color:var(--muted)}
 .empty strong{display:block;color:var(--fg);font-size:1.05rem;margin-bottom:4px}
-.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:12px max(16px,env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));z-index:5}
-.bar .in{max-width:640px;margin:0 auto;display:flex;gap:8px}
+/* barra in basso: vetro liquido (sfocatura + riflesso + bordo luminoso) */
+.tabbar{position:fixed;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:12px;padding:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));z-index:5;pointer-events:none}
+.tabbar>*{pointer-events:auto}
+.glass{position:relative;isolation:isolate;border-radius:99px;
+  background:rgba(250,250,247,.5);background:color-mix(in srgb,var(--card) 52%,transparent);
+  -webkit-backdrop-filter:blur(14px) saturate(190%) brightness(1.04);backdrop-filter:blur(14px) saturate(190%) brightness(1.04);
+  border:.5px solid rgba(255,255,255,.55);border-color:color-mix(in srgb,#fff 45%,transparent);
+  box-shadow:0 10px 30px rgba(0,0,0,.14),0 1px 3px rgba(0,0,0,.08),inset 0 1px 1px rgba(255,255,255,.65),inset 0 -1px 1px rgba(255,255,255,.18)}
+.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,.06) 45%,rgba(255,255,255,0) 60%,rgba(255,255,255,.1))}
+.tabs-pill{display:flex;padding:4px}
+.tabbtn{position:relative;z-index:1;width:92px;height:54px;border:0;background:none;border-radius:99px;color:var(--fg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:600 .68rem var(--sans);letter-spacing:.01em;cursor:pointer;transition:color .25s,transform .35s cubic-bezier(.32,.72,0,1)}
+.tabbtn svg{width:25px;height:25px}
+.tabbtn[aria-selected="true"]{color:var(--accent)}
+.tabbtn:active{transform:scale(.92)}
+.lens{position:absolute;top:4px;left:4px;width:92px;height:54px;border-radius:99px;z-index:0;
+  background:color-mix(in srgb,var(--fg) 9%,transparent);box-shadow:inset 0 1px 1px rgba(255,255,255,.35);
+  transition:transform .5s cubic-bezier(.34,1.35,.5,1)}
+.tabs-pill[data-tab="menu"] .lens{transform:translateX(92px)}
+.tabs-pill.press .lens{transform:scale(1.08)}
+.tabs-pill.press[data-tab="menu"] .lens{transform:translateX(92px) scale(1.08)}
+.fab{width:62px;height:62px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--accent-fg);
+  background:color-mix(in srgb,var(--accent) 82%,transparent);transition:transform .35s cubic-bezier(.32,.72,0,1),opacity .25s}
+.fab svg{width:27px;height:27px}
+.fab:active{transform:scale(.9)}
+.fab.off{opacity:0;transform:scale(.6);pointer-events:none}
+.view h1{margin-bottom:6px}
+.view>p{margin:6px 0;color:var(--muted);font-size:.9rem}
+@media (prefers-reduced-motion:no-preference){.view.enter{animation:viewin .28s cubic-bezier(.32,.72,0,1)}@keyframes viewin{from{opacity:0;transform:translateY(8px)}}}
+[data-dark] .glass{border-color:rgba(255,255,255,.14);box-shadow:0 10px 30px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3),inset 0 1px 1px rgba(255,255,255,.18),inset 0 -1px 1px rgba(255,255,255,.05);background:color-mix(in srgb,var(--card) 58%,transparent)}
+[data-dark] .glass::before{background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,0) 45%,rgba(255,255,255,0) 70%,rgba(255,255,255,.04))}
+[data-dark] .fab{background:color-mix(in srgb,var(--accent) 78%,transparent)}
+@media (prefers-reduced-transparency:reduce){.glass{background:var(--card);-webkit-backdrop-filter:none;backdrop-filter:none}}
 .btn{font:700 1rem var(--sans);border-radius:12px;padding:14px 16px;border:1px solid var(--line);background:var(--card);color:var(--fg);display:inline-flex;align-items:center;justify-content:center;gap:8px}
 .btn.primary{flex:1;background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .btn.danger{color:var(--bad)}
 .btn svg{width:22px;height:22px}
 .hiddenfile{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-.sheet{position:fixed;inset:0;background:rgba(10,12,8,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
-.panel{background:var(--bg);width:100%;max-width:640px;max-height:94%;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.sheet{position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;z-index:20}
+/* pannelli in stile iOS: sfondo che si scurisce, molla in apertura/chiusura, maniglia per tirare giù */
+.sheet::before{content:"";position:absolute;inset:0;background:rgba(10,12,8,.45);opacity:var(--dim,1);transition:opacity var(--sheet-t,.42s) cubic-bezier(.32,.72,0,1)}
+.sheet.closing{pointer-events:none;z-index:19}
+.sheet.dragging::before,.sheet.dragging .panel{transition:none}
+.grab{display:flex;justify-content:center;align-items:center;height:22px;margin:-14px 0 2px;cursor:grab;touch-action:none}
+.grab::before{content:"";width:38px;height:5px;border-radius:3px;background:var(--line)}
+.panel{position:relative;transition:transform var(--sheet-t,.42s) cubic-bezier(.32,.72,0,1);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--bg);width:100%;max-width:640px;max-height:94%;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 .panel h2{font-weight:800;font-size:1.35rem;margin:0 0 4px}
 .panel p{margin:6px 0;color:var(--muted);font-size:.9rem}
 .form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
@@ -159,11 +197,11 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
 .scanner .sbar .btn{flex:1;background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.3)}
 .scanner .top{position:absolute;top:calc(12px + env(safe-area-inset-top));right:max(16px,env(safe-area-inset-right))}
 .scanner .top button{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:8px 12px;font:600 .9rem var(--sans)}
-@media (prefers-reduced-motion:no-preference){.panel{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+@media (prefers-reduced-motion:reduce){.sheet{--sheet-t:.01s}}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap view" id="homeView">
   <header>
     <div>
       <h1 id="appTitle">Dispensa</h1>
@@ -171,8 +209,8 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     </div>
     <div class="hright">
     <button class="userchip" id="userChip" aria-label="Cambia utente"></button>
-    <button class="iconbtn" id="menuBtn" aria-label="Menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    <button class="iconbtn" id="addBtn" aria-label="Aggiungi a mano" title="Aggiungi a mano">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
     </button>
     </div>
   </header>
@@ -189,13 +227,79 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
   <div class="list" id="list"></div>
 </div>
 
-<div class="bar"><div class="in">
-  <button class="btn primary" id="scanBtn">
+<!-- barra in basso in stile iOS (vetro liquido) -->
+<nav class="tabbar" aria-label="Sezioni">
+  <div class="glass tabs-pill" role="tablist">
+    <span class="lens" aria-hidden="true"></span>
+    <button class="tabbtn" id="homeTab" role="tab" aria-selected="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5 12 4l8 5.5V20H4z"/><path d="M4 13h16M9 13v3h6v-3"/></svg>
+      <span>Dispensa</span>
+    </button>
+    <button class="tabbtn" id="menuBtn" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="8" cy="12" r=".6" fill="currentColor"/><circle cx="12" cy="12" r=".6" fill="currentColor"/><circle cx="16" cy="12" r=".6" fill="currentColor"/></svg>
+      <span>Menu</span>
+    </button>
+  </div>
+  <button class="glass fab" id="scanBtn" aria-label="Scansiona un codice a barre">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>
-    Scansiona
   </button>
-  <button class="btn" id="addBtn">+ Manuale</button>
-</div></div>
+</nav>
+
+<!-- menu: seconda scheda della barra in basso -->
+<div class="wrap view" id="menuView" hidden>
+  <header><h1 id="menuTitle">Menu</h1></header>
+    <p>La dispensa è salvata sul NAS ed è condivisa. Il backup esporta tutto in un file .json; “Importa backup” serve anche a portare qui i prodotti della vecchia versione.</p>
+    <p id="lastBackup"></p>
+    <div class="section-label">Aspetto</div>
+    <div class="nrow" style="margin-top:10px">
+      <label for="themeMode">Modalità</label>
+      <select id="themeMode"><option value="auto">Automatica (come l'iPhone)</option><option value="light">Chiara</option><option value="dark">Scura</option></select>
+    </div>
+    <div class="palettes" id="palettes" role="group" aria-label="Colori"></div>
+    <div class="section-label">Avvisi di scadenza</div>
+    <div class="notify">
+      <div class="nrow">
+        <label for="n-days">Avvisami</label>
+        <select id="n-days">
+          <option value="0">il giorno stesso</option><option value="1">1 giorno prima</option><option value="2">2 giorni prima</option>
+          <option value="3">3 giorni prima</option><option value="5">5 giorni prima</option><option value="7">7 giorni prima</option>
+          <option value="10">10 giorni prima</option><option value="14">14 giorni prima</option>
+        </select>
+      </div>
+      <div class="nrow">
+        <label for="n-hour">alle ore</label>
+        <select id="n-hour"></select>
+      </div>
+      <p class="status" id="n-status"></p>
+      <div class="actions">
+        <button class="btn primary" type="button" id="n-on">Attiva su questo telefono</button>
+        <button class="btn" type="button" id="n-test" hidden>Invia una prova</button>
+      </div>
+    </div>
+    <div class="section-label">Ambienti</div>
+    <div class="people" id="spaceList"></div>
+    <div class="section-label">Persone</div>
+    <div class="people" id="peopleList"></div>
+    <div class="actions">
+      <button class="btn primary" id="exportBtn">Esporta backup</button>
+      <button class="btn" id="importBtn">Importa backup</button>
+    </div>
+    <div class="section-label">Intelligenza artificiale</div>
+    <div class="notify" id="aiBox"></div>
+    <div class="section-label">Aggiornamenti</div>
+    <div class="notify" id="updBox"></div>
+    <div class="section-label">Ricette</div>
+    <div class="nrow" id="assistantRow" style="margin-top:10px">
+      <label for="assistant">Chiedi a</label>
+      <select id="assistant"><option value="claude">Claude</option><option value="chatgpt">ChatGPT</option></select>
+    </div>
+    <p class="status" id="assistantNote"></p>
+    <div class="actions"><button class="btn" id="bookBtn">Ricettario</button></div>
+    <div class="actions">
+      <button class="btn" id="switchUser">Cambia utente</button>
+    </div>
+</div>
+
 
 <input id="photo" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
 <input id="expPhoto" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
@@ -273,63 +377,6 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
   </div>
 </div>
 
-<!-- backup -->
-<div class="sheet" id="menuSheet" hidden>
-  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
-    <h2 id="menuTitle">Menu</h2>
-    <p>La dispensa è salvata sul NAS ed è condivisa. Il backup esporta tutto in un file .json; “Importa backup” serve anche a portare qui i prodotti della vecchia versione.</p>
-    <p id="lastBackup"></p>
-    <div class="section-label">Aspetto</div>
-    <div class="nrow" style="margin-top:10px">
-      <label for="themeMode">Modalità</label>
-      <select id="themeMode"><option value="auto">Automatica (come l'iPhone)</option><option value="light">Chiara</option><option value="dark">Scura</option></select>
-    </div>
-    <div class="palettes" id="palettes" role="group" aria-label="Colori"></div>
-    <div class="section-label">Avvisi di scadenza</div>
-    <div class="notify">
-      <div class="nrow">
-        <label for="n-days">Avvisami</label>
-        <select id="n-days">
-          <option value="0">il giorno stesso</option><option value="1">1 giorno prima</option><option value="2">2 giorni prima</option>
-          <option value="3">3 giorni prima</option><option value="5">5 giorni prima</option><option value="7">7 giorni prima</option>
-          <option value="10">10 giorni prima</option><option value="14">14 giorni prima</option>
-        </select>
-      </div>
-      <div class="nrow">
-        <label for="n-hour">alle ore</label>
-        <select id="n-hour"></select>
-      </div>
-      <p class="status" id="n-status"></p>
-      <div class="actions">
-        <button class="btn primary" type="button" id="n-on">Attiva su questo telefono</button>
-        <button class="btn" type="button" id="n-test" hidden>Invia una prova</button>
-      </div>
-    </div>
-    <div class="section-label">Ambienti</div>
-    <div class="people" id="spaceList"></div>
-    <div class="section-label">Persone</div>
-    <div class="people" id="peopleList"></div>
-    <div class="actions">
-      <button class="btn primary" id="exportBtn">Esporta backup</button>
-      <button class="btn" id="importBtn">Importa backup</button>
-    </div>
-    <div class="section-label">Intelligenza artificiale</div>
-    <div class="notify" id="aiBox"></div>
-    <div class="section-label">Aggiornamenti</div>
-    <div class="notify" id="updBox"></div>
-    <div class="section-label">Ricette</div>
-    <div class="nrow" id="assistantRow" style="margin-top:10px">
-      <label for="assistant">Chiedi a</label>
-      <select id="assistant"><option value="claude">Claude</option><option value="chatgpt">ChatGPT</option></select>
-    </div>
-    <p class="status" id="assistantNote"></p>
-    <div class="actions"><button class="btn" id="bookBtn">Ricettario</button></div>
-    <div class="actions">
-      <button class="btn" id="switchUser">Cambia utente</button>
-      <button class="btn" id="menuClose">Chiudi</button>
-    </div>
-  </div>
-</div>
 
 <!-- scanner -->
 <div class="scanner" id="scanner" hidden>

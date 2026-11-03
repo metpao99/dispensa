@@ -16,6 +16,115 @@ let aiOn = ls.get("dispensa-ai", false);
 let online = true, flushing = false;
 let filter = "Tutti", query = "", editing = null;
 
+/* ---------------- pannelli (stile iOS) ----------------
+   openSheet/closeSheet animano l'entrata e l'uscita dal basso. Ogni pannello si può
+   chiudere tirandolo giù: dalla maniglia sempre, dal contenuto solo quando è già in cima. */
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const SHEET_MS = 420;
+const sheetClosers = {};           // chiusure con effetti extra (es. la scheda prodotto azzera "editing")
+function openSheet(id){
+  const s = $(id), p = s.querySelector(".panel");
+  clearTimeout(s._t);
+  const wasHidden = s.hidden || s.classList.contains("closing");
+  s.classList.remove("closing", "dragging");
+  if (!wasHidden) return;
+  if (s.hidden){
+    s.hidden = false;
+    s.classList.add("dragging");            // posizione di partenza senza transizione
+    p.style.transform = "translateY(100%)"; s.style.setProperty("--dim", 0);
+    void p.offsetHeight;
+    s.classList.remove("dragging");
+  }
+  p.style.transform = ""; s.style.removeProperty("--dim");
+}
+function closeSheet(id){
+  const s = $(id), p = s.querySelector(".panel");
+  if (s.hidden || s.classList.contains("closing")) return;
+  if (s.contains(document.activeElement)) document.activeElement.blur();
+  const done = () => { s.hidden = true; s.classList.remove("closing", "dragging"); p.style.transform = ""; s.style.removeProperty("--dim"); };
+  if (reduceMotion.matches) return done();
+  s.classList.remove("dragging"); s.classList.add("closing");
+  p.style.transform = "translateY(100%)"; s.style.setProperty("--dim", 0);
+  s._t = setTimeout(done, SHEET_MS);
+}
+function dismissSheet(id){ (sheetClosers[id] || closeSheet)(id); }
+function scrolledInside(t, panel){
+  for (let n = t; n && n !== panel; n = n.parentElement)
+    if (n.scrollTop > 0 && n.scrollHeight > n.clientHeight) return true;
+  return panel.scrollTop > 0;
+}
+function setupSheet(s){
+  const p = s.querySelector(".panel");
+  const grab = document.createElement("div"); grab.className = "grab"; grab.setAttribute("aria-hidden", "true");
+  p.prepend(grab);
+  let g = null;   // gesto in corso
+  p.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || s.classList.contains("closing")) { g = null; return; }
+    const t = e.touches[0];
+    g = { x: t.clientX, y: t.clientY, top: e.target.closest(".grab") ? true : !scrolledInside(e.target, p),
+          on: false, first: true, d: 0, pts: [] };
+  }, { passive: true });
+  p.addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.on){
+      if (!g.first && Math.abs(dy) < 4) return;
+      g.first = false;
+      // va trascinato solo se si tira verso il basso, in verticale, partendo dalla cima
+      if (!(g.top && dy > 0 && dy >= Math.abs(dx))) { if (Math.abs(dx) > 4 || dy < 0) g = null; return; }
+      g.on = true; g.y = t.clientY; s.classList.add("dragging");
+      if (p.contains(document.activeElement)) document.activeElement.blur();
+    }
+    if (e.cancelable) e.preventDefault();
+    const raw = t.clientY - g.y;
+    g.d = raw >= 0 ? raw : -12 * Math.log1p(-raw / 12);   // verso l'alto: resistenza elastica
+    p.style.transform = `translateY(${g.d}px)`;
+    s.style.setProperty("--dim", Math.max(0, 1 - Math.max(0, g.d) / p.offsetHeight));
+    const now = performance.now();
+    g.pts.push([now, g.d]); while (g.pts.length > 2 && now - g.pts[0][0] > 100) g.pts.shift();
+  }, { passive: false });
+  const end = cancel => {
+    if (!g || !g.on) { g = null; return; }
+    const [t0, d0] = g.pts[0] || [0, 0], dt = performance.now() - t0;
+    const v = dt > 0 ? (g.d - d0) / dt : 0;    // px/ms, positivo verso il basso
+    const far = g.d > Math.min(p.offsetHeight * 0.33, 180), fast = v > 0.45 && g.d > 12;
+    g = null; s.classList.remove("dragging");
+    if (!cancel && (far || fast)) dismissSheet(s.id);
+    else { p.style.transform = ""; s.style.removeProperty("--dim"); }
+  };
+  p.addEventListener("touchend", () => end(false));
+  p.addEventListener("touchcancel", () => end(true));
+}
+document.querySelectorAll(".sheet").forEach(setupSheet);
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const open = [...document.querySelectorAll(".sheet:not([hidden]):not(.closing)")].pop();
+  if (open) dismissSheet(open.id);
+});
+
+/* ---------------- barra in basso: schede Dispensa / Menu ---------------- */
+const tabScroll = { home: 0, menu: 0 };
+let tab = "home";
+function showTab(name){
+  if (name === tab) return;
+  tabScroll[tab] = window.scrollY;
+  tab = name;
+  const views = { home: $("homeView"), menu: $("menuView") };
+  for (const k in views){ views[k].hidden = k !== name; views[k].classList.toggle("enter", k === name); }
+  $("homeTab").setAttribute("aria-selected", name === "home");
+  $("menuBtn").setAttribute("aria-selected", name === "menu");
+  document.querySelector(".tabs-pill").dataset.tab = name;
+  $("scanBtn").classList.toggle("off", name !== "home");
+  window.scrollTo(0, tabScroll[name]);
+}
+const toTop = () => window.scrollTo({ top: 0, behavior: "smooth" });   // ritocco della scheda già aperta: torna su
+$("homeTab").onclick = () => tab === "home" ? toTop() : showTab("home");
+{ // la "lente" si gonfia leggermente mentre tieni premuto, come in iOS
+  const pill = document.querySelector(".tabs-pill");
+  pill.addEventListener("pointerdown", () => pill.classList.add("press"));
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) pill.addEventListener(ev, () => pill.classList.remove("press"));
+}
+
 /* ---------------- dati: NAS + copia locale ---------------- */
 class AuthError extends Error {}
 async function api(method, path, body){
@@ -306,6 +415,7 @@ function applyTheme(){
   const vars = PALETTES[t.palette][dark ? "dark" : "light"], root = document.documentElement;
   for (const k in vars) root.style.setProperty("--" + k, vars[k]);
   root.style.colorScheme = dark ? "dark" : "light";
+  root.toggleAttribute("data-dark", dark);
   const meta = document.getElementById("themeColor"); if (meta) meta.setAttribute("content", vars.bg);
   ls.set("dispensa-theme-vars", { vars, dark });
 }
@@ -324,7 +434,7 @@ function renderPalettes(){
   }
 }
 $("themeMode").onchange = e => { ls.set("dispensa-theme", { ...themePrefs(), mode: e.target.value }); applyTheme(); renderPalettes(); };
-if (darkMQ.addEventListener) darkMQ.addEventListener("change", () => { applyTheme(); if (!$("menuSheet").hidden) renderPalettes(); });
+if (darkMQ.addEventListener) darkMQ.addEventListener("change", () => { applyTheme(); if (!$("menuView").hidden) renderPalettes(); });
 applyTheme();
 
 /* ---------------- scorri a sinistra per eliminare ---------------- */
@@ -490,7 +600,7 @@ async function showIdeas(fresh){
   const names = soonAll().sort((a, b) => daysLeft(a.exp) - daysLeft(b.exp)).map(i => i.name);
   $("recipeIntro").textContent = "Da usare presto: " + names.join(", ") + ". In giallo i prodotti in scadenza, in verde gli altri che hai già.";
   $("recipeMore").hidden = false; $("recipeMore").disabled = true;
-  $("recipeList").textContent = ""; $("recipeSheet").hidden = false;
+  $("recipeList").textContent = ""; openSheet("recipeSheet");
   const st = $("recipeStatus"); st.className = "thinking"; st.textContent = "Sto pensando a qualche ricetta…";
   await loadSaved();
   try {
@@ -504,11 +614,10 @@ async function showIdeas(fresh){
 }
 async function showBook(){
   recipeMode = "book";
-  $("menuSheet").hidden = true;
   $("recipeTitle").textContent = "Ricettario";
   $("recipeIntro").textContent = "Le ricette che avete salvato.";
   $("recipeMore").hidden = true;
-  $("recipeList").textContent = ""; $("recipeSheet").hidden = false;
+  $("recipeList").textContent = ""; openSheet("recipeSheet");
   const st = $("recipeStatus"); st.className = "thinking"; st.textContent = "Carico…";
   const list = await loadSaved();
   st.className = ""; st.textContent = "";
@@ -537,20 +646,20 @@ $("ideasBtn").onclick = () => {
   document.body.append(a); a.click(); a.remove();
 };
 $("recipeMore").onclick = () => showIdeas(true);
-$("recipeClose").onclick = () => $("recipeSheet").hidden = true;
-$("recipeSheet").onclick = e => { if (e.target.id === "recipeSheet") $("recipeSheet").hidden = true; };
+$("recipeClose").onclick = () => closeSheet("recipeSheet");
+$("recipeSheet").onclick = e => { if (e.target.id === "recipeSheet") closeSheet("recipeSheet"); };
 $("bookBtn").onclick = showBook;
 
 /* ---------------- ambienti ---------------- */
-function openSpaceSheet(){ $("s-name").value = ""; $("spaceSheet").hidden = false; setTimeout(() => $("s-name").focus(), 80); }
-$("spaceCancel").onclick = () => $("spaceSheet").hidden = true;
-$("spaceSheet").onclick = e => { if (e.target.id === "spaceSheet") $("spaceSheet").hidden = true; };
+function openSpaceSheet(){ $("s-name").value = ""; openSheet("spaceSheet"); setTimeout(() => $("s-name").focus(), 80); }
+$("spaceCancel").onclick = () => closeSheet("spaceSheet");
+$("spaceSheet").onclick = e => { if (e.target.id === "spaceSheet") closeSheet("spaceSheet"); };
 $("spaceForm").onsubmit = async e => {
   e.preventDefault(); const name = $("s-name").value.trim(); if (!name) return;
   try {
     const r = await api("POST", "/api/spaces", { name });
     spaces.push({ id: r.id, name: r.name }); saveLocal();
-    $("spaceSheet").hidden = true; setCurrent(r.id); toast(r.name + " creato"); refresh();
+    closeSheet("spaceSheet"); setCurrent(r.id); toast(r.name + " creato"); refresh();
   } catch (err) { toast(err instanceof AuthError ? "Scegli prima chi sei" : (err.message || "Serve la connessione al NAS")); }
 };
 async function renderSpaces(){
@@ -576,7 +685,7 @@ async function renderSpaces(){
     row.append(inp, save, del); box.append(row);
   }
   const add = el("button", "btn", "+ Nuovo ambiente"); add.type = "button";
-  add.onclick = () => { $("menuSheet").hidden = true; openSpaceSheet(); };
+  add.onclick = () => { showTab("home"); openSpaceSheet(); };
   box.append(add);
 }
 
@@ -601,7 +710,7 @@ async function renderPeople(){
       if (!armed){ armed = true; del.textContent = "Conferma"; return; }
       try {
         await api("DELETE", "/api/users/" + encodeURIComponent(name)); toast(name + " rimosso");
-        if (me === name){ setMe(null); $("menuSheet").hidden = true; showLogin(); } else renderPeople();
+        if (me === name){ setMe(null); showTab("home"); showLogin(); } else renderPeople();
       } catch (e) { toast(e.message || "Non rimosso"); }
     };
     row.append(inp, save, del); box.append(row);
@@ -619,7 +728,7 @@ async function renderPeople(){
 
 function setMe(name){ me = name; ls.set(ME_KEY, name); $("userChip").textContent = name || ""; $("userChip").hidden = !name; }
 async function switchUser(){
-  $("menuSheet").hidden = true;
+  showTab("home");
   try { await api("POST", "/api/logout"); } catch {}
   setMe(null); showLogin();
 }
@@ -744,10 +853,11 @@ function openForm(it, code, template, note){
   $("f-note").value = it?.note || t.note || "";
   $("readDate").hidden = !aiOn; $("readMsg").hidden = true;
   $("delRow").hidden = !it; delArmed = false; $("delBtn").textContent = "Elimina prodotto";
-  $("sheet").hidden = false;
+  openSheet("sheet");
   if (!it) setTimeout(() => $("f-name").focus(), 80);
 }
-function closeForm(){ $("sheet").hidden = true; editing = null; }
+function closeForm(){ closeSheet("sheet"); editing = null; }
+sheetClosers.sheet = closeForm;
 $("cancelBtn").onclick = closeForm;
 $("sheet").onclick = e => { if (e.target.id === "sheet") closeForm(); };
 $("form").onsubmit = e => {
@@ -897,10 +1007,10 @@ async function decodePhoto(file){
 }
 
 /* ---------------- codice a mano ---------------- */
-function openCodeSheet(msg){ $("codeMsg").textContent = msg; $("m-code").value = ""; $("codeSheet").hidden = false; setTimeout(() => $("m-code").focus(), 80); }
-$("codeCancel").onclick = () => $("codeSheet").hidden = true;
-$("codeSheet").onclick = e => { if (e.target.id === "codeSheet") $("codeSheet").hidden = true; };
-$("codeForm").onsubmit = e => { e.preventDefault(); const c = $("m-code").value.trim(); if (!c) return; $("codeSheet").hidden = true; handleCode(c); };
+function openCodeSheet(msg){ $("codeMsg").textContent = msg; $("m-code").value = ""; openSheet("codeSheet"); setTimeout(() => $("m-code").focus(), 80); }
+$("codeCancel").onclick = () => closeSheet("codeSheet");
+$("codeSheet").onclick = e => { if (e.target.id === "codeSheet") closeSheet("codeSheet"); };
+$("codeForm").onsubmit = e => { e.preventDefault(); const c = $("m-code").value.trim(); if (!c) return; closeSheet("codeSheet"); handleCode(c); };
 
 /* ---------------- backup ---------------- */
 function lastBackup(){ try { return Number(localStorage.getItem(BK)) || 0; } catch { return 0; } }
@@ -912,15 +1022,14 @@ function renderBanner(){
 }
 $("backupNow").onclick = exportData;
 $("menuBtn").onclick = () => {
+  if (tab === "menu") return toTop();
   const lb = lastBackup();
   $("lastBackup").textContent = lb ? "Ultimo backup: " + new Date(lb).toLocaleDateString("it-IT",{day:"numeric",month:"long",year:"numeric"}) : "Nessun backup finora.";
-  $("menuSheet").hidden = false;
+  showTab("menu");
   renderPalettes(); renderAI(); renderUpdate(); renderNotify(); renderSpaces(); renderPeople();
 };
 $("switchUser").onclick = switchUser;
 $("userChip").onclick = switchUser;
-$("menuClose").onclick = () => $("menuSheet").hidden = true;
-$("menuSheet").onclick = e => { if (e.target.id === "menuSheet") $("menuSheet").hidden = true; };
 $("exportBtn").onclick = exportData;
 $("importBtn").onclick = () => { $("importFile").value = ""; $("importFile").click(); };
 
@@ -928,7 +1037,7 @@ async function exportData(){
   const stamp = new Date().toISOString().slice(0,10);
   const json = JSON.stringify({ app: "dispensa", version: 1, exported: new Date().toISOString(), items }, null, 2);
   const file = new File([json], `dispensa-${stamp}.json`, { type: "application/json" });
-  const done = () => { try { localStorage.setItem(BK, String(Date.now())); } catch {} renderBanner(); $("menuSheet").hidden = true; };
+  const done = () => { try { localStorage.setItem(BK, String(Date.now())); } catch {} renderBanner(); showTab("home"); };
   if (navigator.canShare && navigator.canShare({ files: [file] })){
     try { await navigator.share({ files: [file], title: "Backup dispensa" }); done(); toast("Backup esportato"); return; }
     catch (e) { if (e && e.name === "AbortError") return; }
@@ -955,7 +1064,7 @@ $("importFile").onchange = async e => {
       if (!cur){ upsert({ ...it, id }); added++; }
       else if ((it.updated || 0) > (cur.updated || 0)){ upsert({ ...cur, ...it, id: cur.id }); updated++; }
     }
-    render(); $("menuSheet").hidden = true;
+    render(); showTab("home");
     toast(`Importati: ${added} nuovi, ${updated} aggiornati`);
   } catch { toast("File non valido: scegli un backup .json della Dispensa"); }
 };

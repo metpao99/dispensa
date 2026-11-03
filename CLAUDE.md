@@ -27,6 +27,10 @@ d'uso e d'installazione per la proprietaria; questo file è per chi modifica il 
 - Le persone non hanno password: la **proprietaria** è la prima persona creata (`owner_id()`).
   Impostazioni AI e aggiornamenti sono riservati a lei, sia nel server (403) sia nell'interfaccia.
 - Gli accessi al database passano da `db()` sotto `_lock`.
+- Pannelli (`.sheet`): aprili e chiudili con `openSheet(id)` / `closeSheet(id)`, non con `.hidden`,
+  così hanno l'animazione e il gesto "tira giù per chiudere". Se la chiusura deve fare altro, registrala
+  in `sheetClosers[id]` (es. `closeForm` per la scheda prodotto).
+- Navigazione: barra in basso con due schede, `homeView` e `menuView`; si cambia con `showTab("home"|"menu")`.
 
 ## Pubblicare una modifica
 1. Prova in locale su un'altra porta, con una **copia** del database:
