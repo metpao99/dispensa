@@ -17,6 +17,44 @@ Quando si progetta qualcosa adesso, tenerne conto: i dati dei prodotti (nome, ca
 scadenza, codice) sono la base di spesa e ricette, quindi vanno tenuti puliti e coerenti (vedi la
 regola del codice a barre). L'AI passa sempre da `generate()` nel server.
 
+## Stato del lavoro e prossimi passi (aggiornato al 3 novembre 2026, v0.4)
+Da qui si riparte: aggiornare questa sezione alla fine di ogni sessione di lavoro.
+
+**Fatto finora** (dettagli in `git log`):
+- Aggiornamenti: pulsante "Aggiorna ora", controllo di GitHub ogni 10 minuti e all'apertura,
+  finestra "Aggiorna ora / Più tardi", notifica push alla proprietaria, schermata animata.
+- Interfaccia in stile iOS: pannelli da tirare giù (maniglia, molla); barra in basso in vetro liquido
+  a tutta larghezza con tre schede (Dispensa, Ricette, Menu) e lente trascinabile col dito;
+  pulsante rotondo della fotocamera sopra la barra a destra (solo nella scheda Dispensa);
+  zoom disattivato; niente rimbalzo della pagina; numero di versione in fondo al Menu.
+- Fotocamera: pulsante rotondo = "Riconosci dalla foto" con l'AI (nome, categoria, scadenza,
+  codice, quantità); senza AI resta lo scanner. Scanner del codice accanto al campo "Barcode";
+  nome dal codice con Open Food Facts (cache `off_cache`); lettura della scadenza dalla foto.
+- Regola "un codice a barre = un solo prodotto" (nuova confezione: quantità +1, scadenza nuova).
+- Scheda Ricette: prodotti da spuntare + richieste facoltative → ricette dall'AI, ricettario.
+  Restano le "Idee per cosa scade" nella pagina Dispensa.
+- Lista Dispensa: sezioni per categoria richiudibili (ricordate) e interruttore "Schede / Righe".
+
+**Da verificare sul telefono** (corretti senza poterli riprodurre sul NAS):
+- nel Menu la barra in basso scorreva con la pagina (v0.1: niente rimbalzo + overflow-x clip):
+  la proprietaria non ha ancora confermato che sia risolto;
+- schermo che restava congelato dopo la foto dal pulsante rotondo (v0.x, `whenVisible` + `repaint`):
+  confermato che ora la scheda si apre e si compila.
+
+**Idee già discusse, non ancora fatte** (in ordine di priorità proposto):
+1. Foto dello **scontrino**: l'AI legge la spesa e propone tutti i prodotti da aggiungere in un colpo
+   (deve rispettare la regola del codice a barre e quella della nuova confezione).
+2. **Panoramica** in cima alla lista: riquadri "In scadenza / Finiti / Totale / per ambiente" che
+   filtrano la lista; "Finiti" è il primo passo verso la lista della spesa.
+3. **Ordinamento** (scadenza, nome, categoria, aggiunti di recente) e **indice A–Z** laterale.
+4. Poi le tappe della visione: spesa con chat interna, guide passo passo.
+
+**Come lavora la proprietaria:** scrive in italiano e vuole risposte sempre in italiano; preferisce
+commit e push diretti su `main` e prova con la notifica / "Aggiorna ora" (niente copia di prova sulla
+8799, salvo modifiche rischiose al server, che vanno provate su una copia prima del push).
+Le funzioni AI con l'abbonamento Claude funzionano solo per lei. App in uso: porta 8765,
+in casa http://192.168.1.202:8765, con Tailscale https://nas-dispensa.tailc2b502.ts.net.
+
 ## Struttura
 - `server.py` – server HTTP (ThreadingHTTPServer) + API JSON + file statici di `app/`.
   L'elenco delle API è nella docstring in cima al file: tienilo aggiornato.
