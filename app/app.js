@@ -282,7 +282,7 @@ $("recPhoto").onchange = async e => {
     if (r.pezzi > 1 && $("f-qty").value === "1"){ $("f-qty").value = r.pezzi; filled.push("quantità"); }
     if (document.activeElement && $("sheet").contains(document.activeElement)) document.activeElement.blur();
     msg.className = "readmsg";
-    msg.textContent = `Riconosciuto: “${r.nome}”. ` + (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla.");
+    msg.textContent = dupWarning($("f-code").value.trim()) + `Riconosciuto: “${r.nome}”. ` + (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla.");
   } catch (err) {
     msg.className = "readmsg err"; msg.textContent = err instanceof AuthError ? "Scegli prima chi sei." : (err.message || "Riconoscimento non riuscito.");
   } finally { btn.disabled = false; }
@@ -812,7 +812,7 @@ function visible(){
   }).sort((a,b) => key(a) - key(b) || a.name.localeCompare(b.name, "it"));
 }
 function render(){
-  renderTabs();
+  renderTabs(); renderFab();
   const sp = curSpace(), mine = here();
   $("appTitle").textContent = sp.name;
   const cats = [...new Set(mine.map(i => i.cat).filter(Boolean))].sort((a, b) => a.localeCompare(b, "it"));
@@ -831,7 +831,8 @@ function render(){
   const list = $("list"); list.textContent = "";
   if (!mine.length){
     const e = el("div","empty"); e.append(el("strong",null,`Niente in ${sp.name}`),
-      `Tocca “Scansiona”, inquadra il codice a barre e dai al prodotto il nome che preferisci: finirà in ${sp.name}. Alla scansione successiva lo riconosce da solo.`);
+      (aiOn ? `Tocca il pulsante rotondo in basso e fotografa il prodotto: compilo io la scheda e finisce in ${sp.name}.`
+             : `Tocca il pulsante rotondo in basso e inquadra il codice a barre: il prodotto finirà in ${sp.name}.`) + " Con “+” in alto lo scrivi a mano.");
     list.append(e); renderBanner(); return;
   }
   const rows = visible();
@@ -863,7 +864,7 @@ function bump(it, d){
 }
 
 /* ---------------- scheda prodotto ---------------- */
-function openForm(it, code, template, note){
+function openForm(it, code, template, note, noFocus){
   editing = it || null;
   const t = template || {};
   $("sheetTitle").textContent = it ? "Modifica prodotto" : "Nuovo prodotto";
@@ -881,7 +882,7 @@ function openForm(it, code, template, note){
   $("recRow").hidden = !aiOn || !!it; $("recMsg").hidden = true; $("recBtn").disabled = false;
   $("delRow").hidden = !it; delArmed = false; $("delBtn").textContent = "Elimina prodotto";
   openSheet("sheet");
-  if (!it) setTimeout(() => $("f-name").focus(), 80);
+  if (!it && !noFocus) setTimeout(() => $("f-name").focus(), 80);
 }
 function closeForm(){ closeSheet("sheet"); editing = null; }
 sheetClosers.sheet = closeForm;
@@ -914,8 +915,25 @@ $("delBtn").onclick = () => {
 $("addBtn").onclick = () => openForm(null, "");
 $("q").oninput = e => { query = e.target.value; render(); };
 
+/* codice letto dal pulsante accanto a "Barcode" nella scheda: va nella scheda già aperta */
+let scanIntoForm = false;
+const formOpenNew = () => !$("sheet").hidden && !$("sheet").classList.contains("closing") && !editing;
+/* avviso se in questo ambiente c'è già un prodotto con lo stesso codice */
+function dupWarning(code){
+  const sid = curSpace().id, d = code && items.find(x => x.code === code && spaceOf(x) === sid);
+  return d ? `Attenzione: in ${curSpace().name} hai già “${d.name}” con questo codice (q.tà ${d.qty ?? 0}). ` : "";
+}
+$("scanCode").onclick = () => { scanIntoForm = true; startScan(); };
 function handleCode(code){
   code = String(code).trim(); if (!code) return;
+  if (scanIntoForm && formOpenNew()){
+    scanIntoForm = false;
+    $("f-code").value = code;
+    $("sheetCode").textContent = dupWarning(code) + "Codice letto: " + code + ". Cerco il nome…";
+    lookupProduct(code, dupWarning(code));
+    return;
+  }
+  scanIntoForm = false;
   const sid = curSpace().id;
   const found = items.find(x => x.code === code && spaceOf(x) === sid);
   if (found){ openForm(found); toast("Riconosciuto: " + found.name); return; }
@@ -926,8 +944,8 @@ function handleCode(code){
   } else { openForm(null, code, null, "Codice letto: " + code + ". Cerco il nome…"); lookupProduct(code); }
 }
 /* Nome, formato e categoria da Open Food Facts (il NAS fa da tramite e tiene una cache). */
-async function lookupProduct(code){
-  const still = () => !$("sheet").hidden && !$("sheet").classList.contains("closing") && !editing && $("f-code").value.trim() === code;
+async function lookupProduct(code, prefix = ""){
+  const still = () => formOpenNew() && $("f-code").value.trim() === code;
   let r = null;
   try { r = await api("GET", "/api/product/" + encodeURIComponent(code)); } catch {}
   if (!still()) return;
@@ -935,9 +953,9 @@ async function lookupProduct(code){
   if (r && r.found){
     if (!$("f-name").value.trim()) $("f-name").value = r.name;
     if (!$("f-cat").value.trim() && r.cat) $("f-cat").value = sameCat(r.cat);
-    note.textContent = "Trovato su Open Food Facts: controlla il nome e aggiungi la scadenza.";
+    note.textContent = prefix + "Trovato su Open Food Facts: controlla il nome e aggiungi la scadenza.";
   } else {
-    note.textContent = "Codice letto: " + code + ". " + (r ? "Prodotto non presente su Open Food Facts" : "Ricerca del nome non riuscita") +
+    note.textContent = prefix + "Codice letto: " + code + ". " + (r ? "Prodotto non presente su Open Food Facts" : "Ricerca del nome non riuscita") +
       (aiOn ? ": prova “Riconosci dalla foto”." : ": scrivi il nome.");
   }
 }
@@ -972,7 +990,19 @@ let stream = null, running = false, lastTry = 0, torchOn = false;
 const work = document.createElement("canvas");
 const wctx = work.getContext("2d", { willReadFrequently: true });
 
-$("scanBtn").onclick = startScan;
+$("scanBtn").onclick = () => {
+  if (!aiOn){ scanIntoForm = false; return startScan(); }
+  // scheda nuova + fotocamera subito (il click sul file deve restare dentro il tocco)
+  openForm(null, "", null, "", true);
+  $("recPhoto").value = ""; $("recPhoto").click();
+};
+/* il pulsante rotondo riconosce il prodotto con l'AI; senza AI resta lo scanner del codice */
+function renderFab(){
+  const b = $("scanBtn");
+  b.querySelector(".ico-scan").toggleAttribute("hidden", aiOn);
+  b.querySelector(".ico-rec").toggleAttribute("hidden", !aiOn);
+  b.setAttribute("aria-label", aiOn ? "Riconosci un prodotto dalla foto" : "Scansiona un codice a barre");
+}
 $("closeScan").onclick = stopScan;
 $("photoBtn").onclick = () => { stopScan(); $("photo").value = ""; $("photo").click(); };
 $("typeBtn").onclick = () => { stopScan(); openCodeSheet("Scrivi le cifre stampate sotto il barcode."); };

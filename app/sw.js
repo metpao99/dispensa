@@ -1,6 +1,6 @@
 // Cache dell'app per l'uso offline. Le chiamate /api/ vanno sempre al NAS.
 // Quando modifichi i file dell'app, cambia il numero di versione.
-const CACHE = "dispensa-nas-v15";
+const CACHE = "dispensa-nas-v16";
 const FILES = ["./", "index.html", "app.js", "zxing.min.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });

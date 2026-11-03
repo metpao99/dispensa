@@ -245,7 +245,8 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     </button>
   </div>
   <button class="glass fab" id="scanBtn" aria-label="Scansiona un codice a barre">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>
+    <svg class="ico-scan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>
+    <svg class="ico-rec" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true" hidden><path d="M3 8.5h3.2l2-3h6.6l2 3H20v11H3z"/><circle cx="11.5" cy="14" r="3.6"/><path d="M20 1.8l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke="none"/></svg>
   </button>
 </nav>
 
@@ -321,7 +322,9 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
         <p class="readmsg" id="recMsg" hidden></p>
       </div>
       <label class="full">Nome<input id="f-name" required placeholder="es. Pelati Mutti 400 g"></label>
-      <label>Barcode<input id="f-code" inputmode="numeric" placeholder="facoltativo"></label>
+      <label>Barcode
+        <span class="exprow"><input id="f-code" inputmode="numeric" placeholder="facoltativo"><button type="button" class="readbtn" id="scanCode" aria-label="Leggi il codice a barre con la fotocamera" title="Leggi il codice a barre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg></button></span>
+      </label>
       <label>Ambiente<select id="f-space"></select></label>
       <label>Quantità<input id="f-qty" type="number" inputmode="numeric" min="0" step="1" value="1"></label>
       <label>Scadenza
