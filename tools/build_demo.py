@@ -134,6 +134,7 @@ async function api(method, path, body, blob){
     }
   }
   if (path === "/api/ai/settings"){ needUser(); const sm = await demoSampleP; return { demo: true, engine: sm ? "api" : null, apiKeyTail: "", owner: true }; }
+  if (path === "/api/update"){ needUser(); return { demo: true }; }
   if (path === "/api/push/settings"){
     const u = needUser(); db.push = db.push || {};
     if (method === "POST"){ db.push[u] = { days: Math.max(0, Math.min(30, +body.days || 0)), hour: Math.max(0, Math.min(23, +body.hour || 9)) }; save(); return db.push[u]; }

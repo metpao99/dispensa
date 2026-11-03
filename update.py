@@ -16,7 +16,7 @@ BRANCH = "main"
 BASE = os.path.dirname(os.path.abspath(__file__))
 PROTECTED = {"dispensa.db", "dispensa.db-wal", "dispensa.db-shm", "vapid.json", "ai-key.txt",
              "github-token.txt", "claude-token.json", "backups", "server.log", "server.pid", "VERSION",
-             "tailscaled.log", "tailscaled.pid", "state", "tailscale", "tailscaled"}
+             "tailscaled.log", "tailscaled.pid", "state", "tailscale", "tailscaled", "update.log"}
 KEEP_BACKUPS = 10
 
 

@@ -14,6 +14,7 @@ github-token.txt
 VERSION
 server.log
 server.pid
+update.log
 __pycache__/
 *.pyc
 *.zip

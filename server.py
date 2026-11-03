@@ -25,11 +25,15 @@ API
   POST   /api/read-date      {"image": base64 JPEG} -> legge la scadenza dalla foto (serve ai-key.txt)
   PUT    /api/items/<id>     crea/aggiorna un prodotto
   DELETE /api/items/<id>     elimina un prodotto
+  GET    /api/update         versione installata e ultima su GitHub (controllo automatico ogni 6 ore)
+  POST   /api/update/check   controlla subito GitHub (solo la proprietaria)
+  POST   /api/update/run     avvia update.py: copia del database, aggiornamento, riavvio (solo la proprietaria)
 Tutto il resto viene servito dalla cartella ./app
 """
 import webpush
+import update as updater   # lo stesso script che si usa via SSH (python3 update.py)
 import shutil, subprocess, tempfile
-import argparse, datetime, json, urllib.error, urllib.request, mimetypes, os, re, secrets, sqlite3, threading, time
+import argparse, sys, datetime, json, urllib.error, urllib.request, mimetypes, os, re, secrets, sqlite3, threading, time
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
@@ -295,6 +299,85 @@ def ask_ai(prompt, image_b64=None):
         res = json.loads(r.read())
     return "".join(b.get("text", "") for b in res.get("content", []) if b.get("type") == "text")
 
+# ---------- aggiornamenti da GitHub ----------
+UPDATE_LOG = os.path.join(BASE, "update.log")
+UPDATE_EVERY = 6 * 3600          # controllo automatico (GitHub concede 60 richieste/ora senza token)
+_upd = {"latest": None, "checked": None, "error": None, "proc": None}
+_upd_lock = threading.Lock()
+
+
+def installed_version():
+    """Legge VERSION scritto da update.py: '<sha> <data>' oppure 'zip <data>', poi il messaggio."""
+    try:
+        with open(os.path.join(BASE, "VERSION")) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    first = lines[0].split() if lines else []
+    msg = lines[1].strip() if len(lines) > 1 else ""
+    if not first:
+        return {"sha": None, "label": "sconosciuta", "message": ""}
+    if first[0] == "zip":
+        return {"sha": None, "label": "da zip" + (f" del {first[1]}" if len(first) > 1 else ""), "message": msg}
+    return {"sha": first[0], "label": first[0][:7], "message": msg}
+
+
+def check_updates():
+    try:
+        head = updater.get(f"https://api.github.com/repos/{updater.REPO}/commits/{updater.BRANCH}")
+        c = head["commit"]
+        latest = {"sha": head["sha"], "message": c["message"].splitlines()[0][:200], "date": c["committer"]["date"]}
+        err = None
+    except urllib.error.HTTPError as e:
+        latest, err = None, f"GitHub ha risposto {e.code}" + (" (repository privato? serve github-token.txt)" if e.code == 404 else "")
+    except Exception:
+        latest, err = None, "GitHub non raggiungibile: riprova più tardi"
+    with _upd_lock:
+        if latest:
+            _upd["latest"] = latest
+        _upd["error"], _upd["checked"] = err, int(time.time() * 1000)
+
+
+def update_loop():
+    time.sleep(30)
+    while True:
+        check_updates()
+        time.sleep(UPDATE_EVERY)
+
+
+def update_log_tail(n=3):
+    try:
+        with open(UPDATE_LOG) as f:
+            lines = [l.strip() for l in f if l.strip()]
+        return " · ".join(lines[-n:]) or "nessun dettaglio"
+    except OSError:
+        return "nessun dettaglio"
+
+
+def update_status():
+    cur = installed_version()
+    with _upd_lock:
+        latest, proc = _upd["latest"], _upd["proc"]
+        code = proc.poll() if proc else None
+        st = {"installed": cur, "latest": latest, "checked": _upd["checked"], "error": _upd["error"],
+              "available": bool(latest and latest["sha"] != cur["sha"]),
+              "running": bool(proc and code is None),
+              "failed": update_log_tail() if proc and code not in (None, 0) else None}
+    return st
+
+
+def start_update():
+    """Lancia update.py in una sessione separata: sopravvive al riavvio del server che lui stesso fa."""
+    with _upd_lock:
+        if _upd["proc"] and _upd["proc"].poll() is None:
+            return False
+        with open(UPDATE_LOG, "w") as log:
+            _upd["proc"] = subprocess.Popen([sys.executable, "-u", os.path.join(BASE, "update.py")], cwd=BASE,
+                                            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                            start_new_session=True)
+    return True
+
+
 _lock = threading.Lock()
 _db = None
 
@@ -463,6 +546,14 @@ class Handler(BaseHTTPRequestHandler):
                 "engine": engine_for(u), "apiKey": bool(key), "apiKeyTail": key[-4:] if key else "",
                 "claudeInstalled": bool(claude_bin()), "claudeToken": bool(tok),
                 "tokenSaved": saved, "tokenExpires": expires})
+        if path == "/api/update":
+            u = self.need_user()
+            if not u:
+                return
+            with _lock:
+                oid = owner_id()
+                owner = db().execute("SELECT name FROM users WHERE id = ?", (oid,)).fetchone()
+            return self.send_json(200, dict(update_status(), owner=u["id"] == oid, ownerName=owner["name"] if owner else ""))
         if path == "/api/push/key":
             return self.send_json(200, {"key": VAPID[1]})
         if path in ("/api/push/settings", "/api/alerts"):
@@ -593,6 +684,25 @@ class Handler(BaseHTTPRequestHandler):
                     except AIError as e:
                         return self.send_json(502, {"error": str(e)})
                     return self.send_json(200, {"ok": True, "engine": engine_for(u), "reply": out.strip()[:40]})
+                return self.send_json(404, {"error": "Non trovato"})
+            if path.startswith("/api/update/"):
+                u = self.need_user()
+                if not u:
+                    return
+                with _lock:
+                    is_owner = u["id"] == owner_id()
+                if not is_owner:
+                    return self.send_json(403, {"error": "Solo la proprietaria dell'app può installare gli aggiornamenti"})
+                if path == "/api/update/check":
+                    with _upd_lock:
+                        recent = _upd["checked"] and time.time() * 1000 - _upd["checked"] < 15000
+                    if not recent:
+                        check_updates()
+                    return self.send_json(200, update_status())
+                if path == "/api/update/run":
+                    if not start_update():
+                        return self.send_json(409, {"error": "Aggiornamento già in corso"})
+                    return self.send_json(202, {"ok": True})
                 return self.send_json(404, {"error": "Non trovato"})
             if path == "/api/read-date":
                 u = self.need_user()
@@ -791,6 +901,7 @@ def main():
     global VAPID
     VAPID = webpush.load_keys(VAPID_FILE)
     threading.Thread(target=push_loop, daemon=True).start()
+    threading.Thread(target=update_loop, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"Dispensa attiva su http://{a.host}:{a.port}", flush=True)
     srv.serve_forever()

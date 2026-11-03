@@ -236,6 +236,67 @@ async function checkAIExpiry(){
 }
 $("aiBannerBtn").onclick = () => $("menuBtn").click();
 
+/* ---------------- aggiornamenti (da GitHub) ---------------- */
+const fmtWhen = v => new Date(v).toLocaleString("it-IT", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+async function renderUpdate(){
+  const box = $("updBox"); box.textContent = "";
+  let s;
+  try { s = await api("GET", "/api/update"); }
+  catch { box.append(el("p", "status", "Stato non disponibile: NAS non raggiungibile.")); return; }
+  if (s.demo){ box.append(el("p", "status", "Nella prova non servono. Sul NAS, qui installi le nuove versioni pubblicate su GitHub.")); return; }
+  box.append(el("p", "aistate" + (s.available ? "" : " on"),
+    s.running ? "Aggiornamento in corso…" : s.available ? "È disponibile una nuova versione" : s.latest ? "L'app è aggiornata" : "Versione su GitHub non ancora controllata"));
+  box.append(el("p", "status", `Installata: ${s.installed.label}${s.installed.message ? " · " + s.installed.message : ""}`));
+  if (s.available) box.append(el("p", "status", `Nuova: ${s.latest.sha.slice(0, 7)} · ${s.latest.message} (${fmtWhen(s.latest.date)})`));
+  if (s.error) box.append(el("p", "status err", s.error));
+  if (s.failed) box.append(el("p", "status err", "L'ultimo aggiornamento non è riuscito: " + s.failed));
+  if (!s.owner){ box.append(el("p", "status", `Gli aggiornamenti li installa ${s.ownerName || "la proprietaria dell'app"}.`)); return; }
+
+  const msg = el("p", "status");
+  const say = (t, bad) => { msg.className = "status" + (bad ? " err" : ""); msg.textContent = t; };
+  const row = el("div", "actions");
+  const chk = el("button", "btn", "Controlla ora"); chk.type = "button";
+  chk.onclick = async () => {
+    chk.disabled = true; say("Chiedo a GitHub…");
+    try { await api("POST", "/api/update/check", {}); renderUpdate(); checkUpdate(); }
+    catch (e) { say(e.message || "Controllo non riuscito", true); chk.disabled = false; }
+  };
+  row.append(chk);
+  const btns = [chk];
+  if (s.available && !s.running){
+    const go = el("button", "btn primary", "Aggiorna ora"); go.type = "button"; btns.push(go);
+    go.onclick = () => runUpdate(btns, say, s.installed.sha);
+    row.append(go);
+  }
+  box.append(row, msg);
+  if (s.checked) box.append(el("p", "status", "Ultimo controllo: " + fmtWhen(s.checked)));
+  if (s.running) runUpdate(btns, say, s.installed.sha, true);
+}
+async function runUpdate(btns, say, before, already){
+  btns.forEach(b => b.disabled = true);
+  if (!already){
+    try { await api("POST", "/api/update/run", {}); }
+    catch (e) { if (e.status !== 409){ say(e.message || "Aggiornamento non partito", true); btns.forEach(b => b.disabled = false); return; } }
+  }
+  say("Aggiornamento in corso: copia del database, download e riavvio. Non chiudere l'app…");
+  const t0 = Date.now();
+  while (Date.now() - t0 < 120000){
+    await new Promise(r => setTimeout(r, 2000));
+    let s;
+    try { s = await api("GET", "/api/update"); } catch { continue; }   // il server si sta riavviando
+    if (s.failed){ say("Aggiornamento non riuscito: " + s.failed, true); btns.forEach(b => b.disabled = false); return; }
+    if (!s.running && (s.installed.sha !== before || !s.available)){
+      say("Fatto! Ricarico l'app…"); $("updBanner").hidden = true;
+      setTimeout(() => location.reload(), 800); return;
+    }
+  }
+  say("Il NAS non ha ancora finito: riapri l'app tra poco (i dettagli sono in update.log).", true);
+}
+async function checkUpdate(){
+  try { const s = await api("GET", "/api/update"); $("updBanner").hidden = !(s.owner && s.available && !s.running); } catch {}
+}
+$("updBannerBtn").onclick = () => { $("menuBtn").click(); setTimeout(() => $("updBox").scrollIntoView({ behavior: "smooth", block: "center" }), 150); };
+
 /* ---------------- aspetto (tema) ---------------- */
 const PALETTES = {"oliva": {"label": "Oliva", "light": {"bg": "#f3f4ee", "card": "#fbfcf8", "fg": "#1f2419", "muted": "#5f6654", "line": "#d9dccf", "accent": "#3f5f22", "accent-fg": "#f6f8f0", "ok-bg": "#e3ebd5", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#15180f", "card": "#1e2217", "fg": "#e8ebe0", "muted": "#a3aa95", "line": "#323829", "accent": "#9cc06a", "accent-fg": "#16200b", "ok-bg": "#25301a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "mare": {"label": "Mare", "light": {"bg": "#f2f5f8", "card": "#fbfcfe", "fg": "#16212b", "muted": "#55636f", "line": "#d5dde5", "accent": "#1f5f8b", "accent-fg": "#f4f8fb", "ok-bg": "#dfeaf3", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#0f161d", "card": "#17212b", "fg": "#e4ebf1", "muted": "#9aabbb", "line": "#2a3744", "accent": "#7db9e8", "accent-fg": "#0b1a26", "ok-bg": "#18293a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "prugna": {"label": "Prugna", "light": {"bg": "#f6f3f6", "card": "#fdfbfd", "fg": "#241a24", "muted": "#675866", "line": "#e0d7df", "accent": "#6b3a6b", "accent-fg": "#faf5fa", "ok-bg": "#efe2ef", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#171217", "card": "#211a21", "fg": "#efe6ee", "muted": "#ad9dab", "line": "#3a2f39", "accent": "#d9a5d9", "accent-fg": "#2a102a", "ok-bg": "#33213a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "sabbia": {"label": "Sabbia", "light": {"bg": "#f6f2ea", "card": "#fcfaf6", "fg": "#2a2219", "muted": "#6a5d4c", "line": "#e2d9c9", "accent": "#7a5410", "accent-fg": "#fdf8ef", "ok-bg": "#efe5cf", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#18150f", "card": "#221e17", "fg": "#efe8dc", "muted": "#aea18b", "line": "#3a3428", "accent": "#e5bd6e", "accent-fg": "#2a1c04", "ok-bg": "#33291a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "contrasto": {"label": "Alto contrasto", "light": {"bg": "#ffffff", "card": "#ffffff", "fg": "#000000", "muted": "#333333", "line": "#6b6b6b", "accent": "#0039b3", "accent-fg": "#ffffff", "ok-bg": "#dfe8ff", "warn": "#6b4200", "warn-bg": "#fff1c2", "bad": "#9a0000", "bad-bg": "#ffe0e0"}, "dark": {"bg": "#000000", "card": "#0d0d0d", "fg": "#ffffff", "muted": "#d6d6d6", "line": "#8a8a8a", "accent": "#ffd60a", "accent-fg": "#000000", "ok-bg": "#2a2400", "warn": "#ffd60a", "warn-bg": "#332b00", "bad": "#ff8a80", "bad-bg": "#3a0000"}}};
 const darkMQ = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : { matches: false };
@@ -854,7 +915,7 @@ $("menuBtn").onclick = () => {
   const lb = lastBackup();
   $("lastBackup").textContent = lb ? "Ultimo backup: " + new Date(lb).toLocaleDateString("it-IT",{day:"numeric",month:"long",year:"numeric"}) : "Nessun backup finora.";
   $("menuSheet").hidden = false;
-  renderPalettes(); renderAI(); renderNotify(); renderSpaces(); renderPeople();
+  renderPalettes(); renderAI(); renderUpdate(); renderNotify(); renderSpaces(); renderPeople();
 };
 $("switchUser").onclick = switchUser;
 $("userChip").onclick = switchUser;
@@ -904,7 +965,7 @@ setMe(me); render();
 (async () => {
   try {
     const r = await api("GET", "/api/me");
-    setMe(r.name); refresh(); checkAIExpiry();
+    setMe(r.name); refresh(); checkAIExpiry(); checkUpdate();
   } catch (e) {
     if (e instanceof AuthError) showLogin();
     else if (!me) showLogin();             // mai entrato e NAS irraggiungibile: mostra il messaggio
