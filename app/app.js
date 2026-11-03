@@ -263,16 +263,36 @@ $("expPhoto").onchange = async e => {
   } finally { btn.disabled = false; }
 };
 
-/* ---------------- riconosci il prodotto dalla foto (AI) ---------------- */
-$("recBtn").onclick = () => { $("recPhoto").value = ""; $("recPhoto").click(); };
-$("recPhoto").onchange = async e => {
+/* ---------------- riconosci il prodotto dalla foto (AI) ----------------
+   Dal pulsante rotondo si apre PRIMA la fotocamera e la scheda solo a foto pronta:
+   aprire la scheda (con animazione) e subito dopo la fotocamera su iOS può lasciare
+   la scheda non ridisegnata al ritorno. */
+let recFromFab = false, recRun = 0;
+$("recBtn").onclick = () => { recFromFab = false; $("recPhoto").value = ""; $("recPhoto").click(); };
+$("recPhoto").onchange = e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
-  const msg = $("recMsg"), btn = $("recBtn");
-  msg.hidden = false; msg.className = "readmsg thinking"; msg.textContent = "Guardo la foto… (qualche secondo)"; btn.disabled = true;
+  if (recFromFab || !formOpenNew()) openForm(null, "", null, "", true);
+  recFromFab = false;
+  // piccolo ritardo: la scheda si apre e si disegna prima del lavoro sulla foto
+  setTimeout(() => recognizeFile(f), 60);
+};
+function withTimeout(p, ms, text){
+  return Promise.race([p, new Promise((_, ko) => setTimeout(() => ko(new Error(text)), ms))]);
+}
+async function recognizeFile(f){
+  const run = ++recRun, msg = $("recMsg"), btn = $("recBtn"), t0 = Date.now();
+  const say = (cls, text) => { msg.hidden = false; msg.className = "readmsg" + (cls ? " " + cls : ""); msg.textContent = text; };
+  say("thinking", "Preparo la foto…"); btn.disabled = true;
+  const tick = setInterval(() => { if (run === recRun && msg.classList.contains("thinking"))
+    msg.textContent = `Guardo la foto… ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
   try {
-    const jpg = await photoToJpeg(f, 1280);
-    const r = await api("POST", "/api/recognize", { image: await blobToB64(jpg) }, jpg);
-    if (!r.nome){ msg.className = "readmsg err"; msg.textContent = "Non riconosco il prodotto: inquadra bene la confezione, con buona luce."; return; }
+    const jpg = await withTimeout(photoToJpeg(f, 1280), 20000, "Non riesco a preparare la foto: riprova.");
+    say("thinking", "Guardo la foto…");
+    const r = await withTimeout(api("POST", "/api/recognize", { image: await blobToB64(jpg) }, jpg), 120000,
+                                "Il NAS non ha risposto in tempo: riprova.");
+    if (run !== recRun) return;                         // nel frattempo è partita un'altra foto
+    if (!formOpenNew()) openForm(null, "", null, "", true);   // la scheda è stata chiusa: la riapro
+    if (!r.nome){ say("err", "Non riconosco il prodotto: inquadra bene la confezione, con buona luce."); return; }
     const filled = [];
     const put = (id, v, label) => { if (v && !$(id).value.trim()){ $(id).value = v; filled.push(label); } };
     put("f-name", r.nome, "nome");
@@ -281,12 +301,14 @@ $("recPhoto").onchange = async e => {
     put("f-code", r.codice, "codice");
     if (r.pezzi > 1 && $("f-qty").value === "1"){ $("f-qty").value = r.pezzi; filled.push("quantità"); }
     if (document.activeElement && $("sheet").contains(document.activeElement)) document.activeElement.blur();
-    msg.className = "readmsg";
-    msg.textContent = dupWarning($("f-code").value.trim()) + `Riconosciuto: “${r.nome}”. ` + (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla.");
+    say("", dupWarning($("f-code").value.trim()) + `Riconosciuto: “${r.nome}”. ` +
+      (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla."));
+    $("sheet").querySelector(".panel").scrollTop = 0;
   } catch (err) {
-    msg.className = "readmsg err"; msg.textContent = err instanceof AuthError ? "Scegli prima chi sei." : (err.message || "Riconoscimento non riuscito.");
-  } finally { btn.disabled = false; }
-};
+    if (run !== recRun) return;
+    say("err", err instanceof AuthError ? "Scegli prima chi sei." : (err.message || "Riconoscimento non riuscito."));
+  } finally { clearInterval(tick); if (run === recRun) btn.disabled = false; }
+}
 
 /* ---------------- intelligenza artificiale (impostazioni) ---------------- */
 const fmtDate = d => new Date(d + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
@@ -992,9 +1014,8 @@ const wctx = work.getContext("2d", { willReadFrequently: true });
 
 $("scanBtn").onclick = () => {
   if (!aiOn){ scanIntoForm = false; return startScan(); }
-  // scheda nuova + fotocamera subito (il click sul file deve restare dentro il tocco)
-  openForm(null, "", null, "", true);
-  $("recPhoto").value = ""; $("recPhoto").click();
+  // prima la fotocamera; la scheda si apre quando la foto è pronta (vedi recPhoto.onchange)
+  recFromFab = true; $("recPhoto").value = ""; $("recPhoto").click();
 };
 /* il pulsante rotondo riconosce il prodotto con l'AI; senza AI resta lo scanner del codice */
 function renderFab(){
