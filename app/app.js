@@ -2,7 +2,7 @@
 "use strict";
 /* Versione dell'app: si aumenta a ogni push su main (vedi CLAUDE.md).
    Piccole modifiche e correzioni: +0.1 (0.1 → 0.2). Miglioramenti grandi: unità (0.9 → 1.0). */
-const APP_VERSION = "0.1";
+const APP_VERSION = "0.2";
 const $ = id => document.getElementById(id);
 $("appVer").textContent = "Dispensa " + APP_VERSION;
 const SPACES_KEY = "dispensa-spaces", CUR_KEY = "dispensa-current-space";
@@ -152,10 +152,50 @@ function showTab(name){
 const toTop = () => window.scrollTo({ top: 0, behavior: "smooth" });   // ritocco della scheda già aperta: torna su
 $("homeTab").onclick = () => tab === "home" ? toTop() : showTab("home");
 $("recipesTab").onclick = () => tab === "recipes" ? toTop() : showTab("recipes");
-{ // la "lente" si gonfia leggermente mentre tieni premuto, come in iOS
-  const pill = document.querySelector(".tabs-pill");
-  pill.addEventListener("pointerdown", () => pill.classList.add("press"));
-  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) pill.addEventListener(ev, () => pill.classList.remove("press"));
+/* La "lente" della barra si trascina col dito, come in iOS: tieni premuto, scorri,
+   lasci sopra una scheda e si apre quella. Un tocco semplice resta un tocco. */
+{
+  const pill = document.querySelector(".tabs-pill"), lens = pill.querySelector(".lens");
+  const btns = [$("homeTab"), $("recipesTab"), $("menuBtn")], names = ["home", "recipes", "menu"];
+  let g = null, skipClick = false;
+  const geo = () => { const r = pill.getBoundingClientRect(), w = (r.width - 8) / btns.length; return { r, w }; };
+  const indexAt = x => { const { r, w } = geo(); return Math.max(0, Math.min(btns.length - 1, Math.floor((x - r.left - 4) / w))); };
+  pill.addEventListener("pointerdown", e => {
+    if (e.button > 0) return;
+    pill.classList.add("press");
+    g = { x: e.clientX, id: e.pointerId, moved: false };
+  });
+  pill.addEventListener("pointermove", e => {
+    if (!g || e.pointerId !== g.id) return;
+    if (!g.moved){
+      if (Math.abs(e.clientX - g.x) < 6) return;
+      g.moved = true; pill.classList.add("sliding");
+      try { pill.setPointerCapture(e.pointerId); } catch {}
+    }
+    const { r, w } = geo();
+    const x = Math.max(0, Math.min(r.width - 8 - w, e.clientX - r.left - 4 - w / 2));
+    lens.style.transform = `translateX(${x}px) scale(1.12, 1.06)`;     // la lente segue il dito e si allarga un po'
+    const i = indexAt(e.clientX);
+    btns.forEach((b, k) => b.classList.toggle("hover", k === i));
+  });
+  const end = e => {
+    if (!g || (e && e.pointerId !== g.id)) return;
+    const moved = g.moved; g = null;
+    pill.classList.remove("press", "sliding");
+    btns.forEach(b => b.classList.remove("hover"));
+    lens.style.transform = "";                                      // la molla la porta sulla scheda giusta
+    if (moved && e && e.type === "pointerup"){
+      skipClick = true; setTimeout(() => skipClick = false, 400);
+      const i = indexAt(e.clientX);
+      if (names[i] !== tab) btns[i].onclick();
+    }
+  };
+  pill.addEventListener("pointerup", end);
+  pill.addEventListener("pointercancel", end);
+  pill.addEventListener("lostpointercapture", e => { if (g && g.moved) end(e); });
+  pill.addEventListener("pointerleave", e => { if (g && !g.moved) end(); });   // dito uscito senza trascinare
+  // dopo un trascinamento il "click" finale non deve aprire di nuovo la scheda
+  pill.addEventListener("click", e => { if (skipClick){ e.stopPropagation(); e.preventDefault(); } }, true);
 }
 
 /* ---------------- dati: NAS + copia locale ---------------- */

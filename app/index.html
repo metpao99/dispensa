@@ -108,6 +108,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .glass::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;
   background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,.06) 45%,rgba(255,255,255,0) 60%,rgba(255,255,255,.1))}
 .tabs-pill{display:flex;padding:4px;max-width:640px;margin:0 auto}
+.tabs-pill{touch-action:none;user-select:none;-webkit-user-select:none}
+.tabs-pill.sliding .lens{transition:transform .12s ease-out}
+.tabbtn.hover{color:var(--accent)}
+.tabs-pill.sliding .tabbtn[aria-selected="true"]:not(.hover){color:var(--fg)}
 .tabbtn{position:relative;z-index:1;flex:1;min-width:0;height:54px;border:0;background:none;border-radius:99px;color:var(--fg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:600 .68rem var(--sans);letter-spacing:.01em;cursor:pointer;transition:color .25s,transform .35s cubic-bezier(.32,.72,0,1)}
 .tabbtn svg{width:25px;height:25px}
 .tabbtn[aria-selected="true"]{color:var(--accent)}
