@@ -804,7 +804,8 @@ function pickCount(){
   const n = picked.size;
   $("pickCount").textContent = n === 1 ? "1 scelto" : `${n} scelti`;
   $("pickGo").disabled = !n; $("pickClear").disabled = !n;
-  $("pickGo").textContent = aiOn ? "Suggerisci ricette" : "Chiedi a " + ASSISTANTS[assistant()].label;
+  document.querySelector(".pickbar").classList.toggle("off", !n);     // compare solo quando hai scelto qualcosa
+  $("pickGo").textContent = aiOn ? "Suggerisci" : "Chiedi a " + ASSISTANTS[assistant()].label;
 }
 $("pickQ").oninput = e => { pickQuery = e.target.value; renderPick(); };
 $("pickClear").onclick = () => { picked.clear(); renderPick(); };
