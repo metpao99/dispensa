@@ -60,18 +60,19 @@ function setupSheet(s){
   let g = null;   // gesto in corso
   p.addEventListener("touchstart", e => {
     if (e.touches.length !== 1 || s.classList.contains("closing")) { g = null; return; }
-    const t = e.touches[0];
-    g = { x: t.clientX, y: t.clientY, top: e.target.closest(".grab") ? true : !scrolledInside(e.target, p),
-          on: false, first: true, d: 0, pts: [] };
+    const t = e.touches[0], fromGrab = !!e.target.closest(".grab");
+    // da pulsanti e campi non si trascina: il tocco deve restare un tocco (es. "Salva" con la tastiera aperta)
+    if (!fromGrab && e.target.closest("button, input, select, textarea, label, a, [role=button]")) { g = null; return; }
+    g = { x: t.clientX, y: t.clientY, top: fromGrab || !scrolledInside(e.target, p), on: false, d: 0, pts: [] };
   }, { passive: true });
   p.addEventListener("touchmove", e => {
     if (!g) return;
     const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
     if (!g.on){
-      if (!g.first && Math.abs(dy) < 4) return;
-      g.first = false;
       // va trascinato solo se si tira verso il basso, in verticale, partendo dalla cima
-      if (!(g.top && dy > 0 && dy >= Math.abs(dx))) { if (Math.abs(dx) > 4 || dy < 0) g = null; return; }
+      if (!g.top || dy < 0 || Math.abs(dx) > Math.max(8, dy)) { g = null; return; }
+      if (e.cancelable) e.preventDefault();      // niente rimbalzo di Safari mentre si decide
+      if (dy < 8) return;                        // sotto gli 8 px è ancora un tocco
       g.on = true; g.y = t.clientY; s.classList.add("dragging");
       if (p.contains(document.activeElement)) document.activeElement.blur();
     }
@@ -279,6 +280,7 @@ $("recPhoto").onchange = async e => {
     put("f-exp", r.scadenza, "scadenza");
     put("f-code", r.codice, "codice");
     if (r.pezzi > 1 && $("f-qty").value === "1"){ $("f-qty").value = r.pezzi; filled.push("quantità"); }
+    if (document.activeElement && $("sheet").contains(document.activeElement)) document.activeElement.blur();
     msg.className = "readmsg";
     msg.textContent = `Riconosciuto: “${r.nome}”. ` + (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla.");
   } catch (err) {
@@ -885,8 +887,14 @@ function closeForm(){ closeSheet("sheet"); editing = null; }
 sheetClosers.sheet = closeForm;
 $("cancelBtn").onclick = closeForm;
 $("sheet").onclick = e => { if (e.target.id === "sheet") closeForm(); };
+$("form").noValidate = true;     // la verifica di Safari nella web app può bloccare senza dire niente
 $("form").onsubmit = e => {
   e.preventDefault();
+  try { saveForm(); }
+  catch (err) { console.error(err); toast("Non salvato: " + (err.message || "errore imprevisto")); }
+};
+function saveForm(){
+  if (!$("f-name").value.trim()){ toast("Scrivi il nome del prodotto"); $("f-name").focus(); return; }
   const it = {
     id: editing ? editing.id : newId(),
     code: $("f-code").value.trim(), name: $("f-name").value.trim(), space: $("f-space").value,
@@ -897,7 +905,7 @@ $("form").onsubmit = e => {
   const moved = editing && spaceOf(editing) !== it.space;
   upsert(it); closeForm();
   toast(moved ? "Spostato in " + (spaces.find(s => s.id === it.space) || {}).name : "Salvato");
-};
+}
 let delArmed = false;
 $("delBtn").onclick = () => {
   if (!delArmed){ delArmed = true; $("delBtn").textContent = "Tocca di nuovo per eliminare"; return; }
