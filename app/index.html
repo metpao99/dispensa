@@ -187,6 +187,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-top:6px}
 .section-label{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:18px}
 .status.err{color:var(--bad)}
+.recrow{display:flex;flex-direction:column;gap:6px}
+.recrow .btn{width:100%;border-color:var(--accent);background:var(--ok-bg);color:var(--accent)}
+.recrow .btn[disabled]{opacity:.5}
+.recrow .readmsg{margin:0}
 /* scanner a schermo intero */
 .scanner{position:fixed;inset:0;background:#000;z-index:40;display:flex;flex-direction:column}
 .scanner video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -302,6 +306,7 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
 
 
 <input id="photo" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+<input id="recPhoto" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
 <input id="expPhoto" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
 <input id="importFile" class="hiddenfile" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
 
@@ -311,6 +316,10 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     <h2 id="sheetTitle">Nuovo prodotto</h2>
     <div class="code" id="sheetCode"></div>
     <form class="form" id="form" autocomplete="off">
+      <div class="full recrow" id="recRow" hidden>
+        <button type="button" class="btn" id="recBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/><path d="M19 2.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor" stroke="none"/></svg>Riconosci dalla foto</button>
+        <p class="readmsg" id="recMsg" hidden></p>
+      </div>
       <label class="full">Nome<input id="f-name" required placeholder="es. Pelati Mutti 400 g"></label>
       <label>Barcode<input id="f-code" inputmode="numeric" placeholder="facoltativo"></label>
       <label>Ambiente<select id="f-space"></select></label>

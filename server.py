@@ -23,6 +23,8 @@ API
   GET    /api/push/key | /api/push/settings, POST /api/push/settings | subscribe | unsubscribe | test
   GET    /api/alerts         testo dell'avviso per chi chiede (usato dal service worker)
   POST   /api/read-date      {"image": base64 JPEG} -> legge la scadenza dalla foto (serve ai-key.txt)
+  POST   /api/recognize      {"image": base64 JPEG} -> riconosce il prodotto dalla foto: nome, categoria, pezzi, scadenza (AI)
+  GET    /api/product/<code> nome, marca, formato e categoria da Open Food Facts (con cache nel database)
   PUT    /api/items/<id>     crea/aggiorna un prodotto
   DELETE /api/items/<id>     elimina un prodotto
   GET    /api/update         versione installata e ultima su GitHub (controllo automatico ogni 6 ore)
@@ -275,6 +277,95 @@ Regole: formato europeo giorno/mese/anno; anno a due cifre = 20xx; se ci sono so
 Rispondi SOLO con JSON valido: {{"data":"AAAA-MM-GG oppure null","letto":"il testo della data così come è stampato"}}"""
 
 
+RECOGNIZE_PROMPT = """Nella foto c'è un prodotto da dispensa, frigo o casa (confezione, frutta, verdura, prodotto del banco…). Oggi è {today}.
+Riconoscilo e rispondi SOLO con JSON valido:
+{{"nome":"nome breve con marca e formato se si leggono, es. «Pelati Mutti 400 g» o «Mele Golden»",
+"categoria":"una categoria breve in italiano",
+"pezzi":numero di confezioni o pezzi uguali visibili (1 se è uno solo),
+"scadenza":"AAAA-MM-GG se una data di scadenza è leggibile, altrimenti null",
+"codice":"le cifre del codice a barre se sono leggibili per intero, altrimenti null"}}
+Per la categoria usa, se adatta, una di queste che sono già in uso: {cats}.
+Per la scadenza: formato europeo giorno/mese/anno, anno a due cifre = 20xx, solo mese e anno = ultimo giorno del mese.
+Se nella foto non c'è un prodotto riconoscibile, metti "nome": null."""
+
+
+def parse_recognize_answer(text):
+    a, b = text.find("{"), text.rfind("}")
+    data = json.loads(text[a:b + 1])
+    exp = data.get("scadenza")
+    try:
+        exp = datetime.date.fromisoformat(str(exp)).isoformat() if exp else None
+    except ValueError:
+        exp = None
+    try:
+        n = max(1, min(99, int(data.get("pezzi") or 1)))
+    except (TypeError, ValueError):
+        n = 1
+    code = re.sub(r"\D", "", str(data.get("codice") or ""))
+    return {"nome": str(data.get("nome") or "").strip()[:200] or None,
+            "categoria": str(data.get("categoria") or "").strip()[:60],
+            "pezzi": n, "scadenza": exp, "codice": code if 8 <= len(code) <= 14 else ""}
+
+
+# ---------- Open Food Facts: nome del prodotto dal codice a barre ----------
+OFF_URL = "https://world.openfoodfacts.org/api/v2/product/{}.json?fields=product_name,product_name_it,brands,quantity,categories_tags"
+OFF_UA = "Dispensa-NAS/1.0 (app domestica)"
+OFF_TTL = {True: 30 * 86400, False: 86400}      # trovato: un mese; non trovato: riprova dopo un giorno
+# dal tag più specifico al più generico: vince il primo che compare tra le categorie del prodotto
+OFF_CATS = [
+    ("en:frozen-foods", "Surgelati"), ("en:pastas", "Pasta"), ("en:rices", "Riso"), ("en:legumes", "Legumi"),
+    ("en:canned-foods", "Conserve"), ("en:tomato-sauces", "Sughi"), ("en:sauces", "Sughi"), ("en:olive-oils", "Olio"),
+    ("en:vegetable-oils", "Olio"), ("en:vinegars", "Condimenti"), ("en:condiments", "Condimenti"), ("en:spices", "Spezie"),
+    ("en:salts", "Condimenti"), ("en:cheeses", "Formaggi"), ("en:yogurts", "Latticini"), ("en:milks", "Latticini"),
+    ("en:dairies", "Latticini"), ("en:eggs", "Uova"), ("en:hams", "Salumi"), ("en:prepared-meats", "Salumi"),
+    ("en:meats", "Carne"), ("en:fishes", "Pesce"), ("en:seafood", "Pesce"), ("en:breads", "Pane"),
+    ("en:biscuits", "Biscotti"), ("en:breakfast-cereals", "Colazione"), ("en:chocolates", "Dolci"),
+    ("en:confectioneries", "Dolci"), ("en:sweet-spreads", "Colazione"), ("en:honeys", "Colazione"),
+    ("en:jams", "Colazione"), ("en:coffees", "Caffè e tè"), ("en:teas", "Caffè e tè"), ("en:waters", "Bevande"),
+    ("en:wines", "Vino e alcolici"), ("en:beers", "Vino e alcolici"), ("en:alcoholic-beverages", "Vino e alcolici"),
+    ("en:beverages", "Bevande"), ("en:salty-snacks", "Snack"), ("en:snacks", "Snack"), ("en:flours", "Farine"),
+    ("en:sugars", "Zucchero"), ("en:fruits", "Frutta e verdura"), ("en:vegetables", "Frutta e verdura"),
+    ("en:cereals-and-their-products", "Cereali"),
+]
+
+
+def off_product(code):
+    """Ritorna {"found": bool, ...}; usa la cache nel database. Solleva OSError se Open Food Facts non risponde."""
+    now = int(time.time())
+    with _lock:
+        r = db().execute("SELECT data, fetched FROM off_cache WHERE code = ?", (code,)).fetchone()
+    if r:
+        data = json.loads(r["data"])
+        if now - r["fetched"] < OFF_TTL[data["found"]]:
+            return data
+    req = urllib.request.Request(OFF_URL.format(code), headers={"User-Agent": OFF_UA})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code != 404:          # 404 = prodotto non presente: va in cache come "non trovato"
+            raise
+        raw = {}
+    p = raw.get("product") or {}
+    name = (p.get("product_name_it") or p.get("product_name") or "").strip()
+    data = {"found": bool(raw.get("status") == 1 and name)}
+    if data["found"]:
+        brand = (p.get("brands") or "").split(",")[0].strip()
+        qty = (p.get("quantity") or "").strip()
+        full = name
+        if brand and brand.lower() not in name.lower():
+            full += " " + brand
+        if qty and qty.lower() not in full.lower():
+            full += " " + qty
+        tags = set(p.get("categories_tags") or [])
+        cat = next((it for tag, it in OFF_CATS if tag in tags), "")
+        data.update(name=full[:200], brand=brand[:80], quantity=qty[:40], cat=cat)
+    with _lock:
+        db().execute("INSERT OR REPLACE INTO off_cache VALUES (?,?,?)", (code, json.dumps(data), now))
+        db().commit()
+    return data
+
+
 def parse_date_answer(text):
     a, b = text.find("{"), text.rfind("}")
     data = json.loads(text[a:b + 1])
@@ -402,6 +493,8 @@ def db():
                 endpoint TEXT PRIMARY KEY, user_id INTEGER NOT NULL, origin TEXT, created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS push_prefs(
                 user_id INTEGER PRIMARY KEY, days INTEGER NOT NULL, hour INTEGER NOT NULL, last_sent TEXT);
+            CREATE TABLE IF NOT EXISTS off_cache(
+                code TEXT PRIMARY KEY, data TEXT NOT NULL, fetched INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS items(
                 id TEXT PRIMARY KEY, data TEXT NOT NULL,
                 updated INTEGER NOT NULL, updated_by TEXT);
@@ -531,6 +624,14 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 spaces = list_spaces()
             return self.send_json(200, {"items": items, "spaces": spaces, "ai": bool(engine_for(u)), "now": int(time.time() * 1000)})
+        mp = re.match(r"^/api/product/(\d{6,14})$", path)
+        if mp:
+            if not self.need_user():
+                return
+            try:
+                return self.send_json(200, off_product(mp.group(1)))
+            except (OSError, ValueError):
+                return self.send_json(502, {"error": "Open Food Facts non raggiungibile"})
         if path == "/api/ai/settings":
             u = self.need_user()
             if not u:
@@ -721,6 +822,28 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(502, {"error": str(e)})
                 except (ValueError, KeyError):
                     return self.send_json(502, {"error": "Data non leggibile: riprova la foto"})
+            if path == "/api/recognize":
+                u = self.need_user()
+                if not u:
+                    return
+                if not engine_for(u):
+                    return self.send_json(400, {"error": "Riconoscimento non attivo: collega l'AI in Menu › Intelligenza artificiale"})
+                img = str(self.read_json(limit=6 * 1024 * 1024).get("image") or "")
+                if "," in img[:100]:
+                    img = img.split(",", 1)[1]
+                if len(img) < 100:
+                    return self.send_json(400, {"error": "Foto mancante"})
+                with _lock:
+                    rows = db().execute("SELECT data FROM items").fetchall()
+                cats = sorted({(json.loads(r["data"]).get("cat") or "").strip() for r in rows} - {""})[:40]
+                prompt = RECOGNIZE_PROMPT.format(today=datetime.date.today().isoformat(),
+                                                 cats=", ".join(cats) or "nessuna, scegline tu una")
+                try:
+                    return self.send_json(200, parse_recognize_answer(generate(u, prompt, img)))
+                except AIError as e:
+                    return self.send_json(502, {"error": str(e)})
+                except (ValueError, KeyError):
+                    return self.send_json(502, {"error": "Prodotto non riconosciuto: riprova la foto"})
             if path == "/api/recipes":
                 u = self.need_user()
                 if not u:

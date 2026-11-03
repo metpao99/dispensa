@@ -262,6 +262,30 @@ $("expPhoto").onchange = async e => {
   } finally { btn.disabled = false; }
 };
 
+/* ---------------- riconosci il prodotto dalla foto (AI) ---------------- */
+$("recBtn").onclick = () => { $("recPhoto").value = ""; $("recPhoto").click(); };
+$("recPhoto").onchange = async e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const msg = $("recMsg"), btn = $("recBtn");
+  msg.hidden = false; msg.className = "readmsg thinking"; msg.textContent = "Guardo la foto… (qualche secondo)"; btn.disabled = true;
+  try {
+    const jpg = await photoToJpeg(f, 1280);
+    const r = await api("POST", "/api/recognize", { image: await blobToB64(jpg) }, jpg);
+    if (!r.nome){ msg.className = "readmsg err"; msg.textContent = "Non riconosco il prodotto: inquadra bene la confezione, con buona luce."; return; }
+    const filled = [];
+    const put = (id, v, label) => { if (v && !$(id).value.trim()){ $(id).value = v; filled.push(label); } };
+    put("f-name", r.nome, "nome");
+    put("f-cat", r.categoria && sameCat(r.categoria), "categoria");
+    put("f-exp", r.scadenza, "scadenza");
+    put("f-code", r.codice, "codice");
+    if (r.pezzi > 1 && $("f-qty").value === "1"){ $("f-qty").value = r.pezzi; filled.push("quantità"); }
+    msg.className = "readmsg";
+    msg.textContent = `Riconosciuto: “${r.nome}”. ` + (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla.");
+  } catch (err) {
+    msg.className = "readmsg err"; msg.textContent = err instanceof AuthError ? "Scegli prima chi sei." : (err.message || "Riconoscimento non riuscito.");
+  } finally { btn.disabled = false; }
+};
+
 /* ---------------- intelligenza artificiale (impostazioni) ---------------- */
 const fmtDate = d => new Date(d + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
 async function renderAI(){
@@ -852,6 +876,7 @@ function openForm(it, code, template, note){
   $("f-cat").value = it?.cat || t.cat || "";
   $("f-note").value = it?.note || t.note || "";
   $("readDate").hidden = !aiOn; $("readMsg").hidden = true;
+  $("recRow").hidden = !aiOn || !!it; $("recMsg").hidden = true; $("recBtn").disabled = false;
   $("delRow").hidden = !it; delArmed = false; $("delBtn").textContent = "Elimina prodotto";
   openSheet("sheet");
   if (!it) setTimeout(() => $("f-name").focus(), 80);
@@ -890,7 +915,28 @@ function handleCode(code){
   if (elsewhere){
     const where = (spaces.find(s => s.id === spaceOf(elsewhere)) || {}).name || "un altro ambiente";
     openForm(null, code, elsewhere, `Già presente in ${where} come “${elsewhere.name}”: lo aggiungo anche qui.`);
-  } else openForm(null, code);
+  } else { openForm(null, code, null, "Codice letto: " + code + ". Cerco il nome…"); lookupProduct(code); }
+}
+/* Nome, formato e categoria da Open Food Facts (il NAS fa da tramite e tiene una cache). */
+async function lookupProduct(code){
+  const still = () => !$("sheet").hidden && !$("sheet").classList.contains("closing") && !editing && $("f-code").value.trim() === code;
+  let r = null;
+  try { r = await api("GET", "/api/product/" + encodeURIComponent(code)); } catch {}
+  if (!still()) return;
+  const note = $("sheetCode");
+  if (r && r.found){
+    if (!$("f-name").value.trim()) $("f-name").value = r.name;
+    if (!$("f-cat").value.trim() && r.cat) $("f-cat").value = sameCat(r.cat);
+    note.textContent = "Trovato su Open Food Facts: controlla il nome e aggiungi la scadenza.";
+  } else {
+    note.textContent = "Codice letto: " + code + ". " + (r ? "Prodotto non presente su Open Food Facts" : "Ricerca del nome non riuscita") +
+      (aiOn ? ": prova “Riconosci dalla foto”." : ": scrivi il nome.");
+  }
+}
+/* usa la stessa grafia di una categoria già presente (es. "pasta" → "Pasta") */
+function sameCat(c){
+  const low = c.toLowerCase(), hit = items.find(i => (i.cat || "").toLowerCase() === low);
+  return hit ? hit.cat : c;
 }
 
 /* ---------------- decodifica ---------------- */

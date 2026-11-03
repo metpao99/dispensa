@@ -156,6 +156,50 @@ Rispondi SOLO con JSON valido: {"data":"AAAA-MM-GG oppure null","letto":"il test
                    e && e.code === "images_unavailable" ? "Foto non supportate in questa anteprima" : "Lettura non riuscita: riprova");
     }
   }
+  if ((m = path.match(/^\/api\/product\/(\d{6,14})$/))){
+    needUser();
+    // nella prova il browser chiede direttamente a Open Food Facts (consente le richieste da altri siti)
+    try {
+      const r = await fetch("https://world.openfoodfacts.org/api/v2/product/" + m[1] + ".json?fields=product_name,product_name_it,brands,quantity,categories_tags");
+      const j = await r.json(), p = j.product || {};
+      const name = (p.product_name_it || p.product_name || "").trim();
+      if (j.status !== 1 || !name) return { found: false };
+      const brand = (p.brands || "").split(",")[0].trim(), qty = (p.quantity || "").trim();
+      let full = name;
+      if (brand && !name.toLowerCase().includes(brand.toLowerCase())) full += " " + brand;
+      if (qty && !full.toLowerCase().includes(qty.toLowerCase())) full += " " + qty;
+      const map = [["en:frozen-foods","Surgelati"],["en:pastas","Pasta"],["en:canned-foods","Conserve"],["en:sauces","Sughi"],
+        ["en:dairies","Latticini"],["en:meats","Carne"],["en:fishes","Pesce"],["en:biscuits","Biscotti"],["en:beverages","Bevande"],["en:snacks","Snack"]];
+      const tags = new Set(p.categories_tags || []), hit = map.find(([t]) => tags.has(t));
+      return { found: true, name: full, brand, quantity: qty, cat: hit ? hit[1] : "" };
+    } catch { demoErr(502, "Open Food Facts non raggiungibile"); }
+  }
+  if (path === "/api/recognize"){
+    needUser();
+    const sm = await demoSampleP; if (!sm) demoErr(400, "Riconoscimento non disponibile in questa anteprima");
+    const today = new Date().toISOString().slice(0, 10);
+    const cats = [...new Set(Object.values(db.items).map(i => (i.cat || "").trim()).filter(Boolean))].sort().slice(0, 40);
+    const prompt = `Nella foto c'è un prodotto da dispensa, frigo o casa (confezione, frutta, verdura, prodotto del banco…). Oggi è ${today}.
+Riconoscilo e rispondi SOLO con JSON valido:
+{"nome":"nome breve con marca e formato se si leggono, es. «Pelati Mutti 400 g» o «Mele Golden»",
+"categoria":"una categoria breve in italiano",
+"pezzi":numero di confezioni o pezzi uguali visibili (1 se è uno solo),
+"scadenza":"AAAA-MM-GG se una data di scadenza è leggibile, altrimenti null",
+"codice":"le cifre del codice a barre se sono leggibili per intero, altrimenti null"}
+Per la categoria usa, se adatta, una di queste che sono già in uso: ${cats.join(", ") || "nessuna, scegline tu una"}.
+Per la scadenza: formato europeo giorno/mese/anno, anno a due cifre = 20xx, solo mese e anno = ultimo giorno del mese.
+Se nella foto non c'è un prodotto riconoscibile, metti "nome": null.`;
+    try {
+      const r = await sm.json(prompt, { images: [blob], cache: false }) || {};
+      const exp = typeof r.scadenza === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.scadenza) && !isNaN(Date.parse(r.scadenza)) ? r.scadenza : null;
+      const code = String(r.codice || "").replace(/\D/g, "");
+      return { nome: String(r.nome || "").trim().slice(0, 200) || null, categoria: String(r.categoria || "").trim().slice(0, 60),
+               pezzi: Math.max(1, Math.min(99, parseInt(r.pezzi) || 1)), scadenza: exp, codice: code.length >= 8 && code.length <= 14 ? code : "" };
+    } catch (e) {
+      demoErr(502, e && e.code === "not_granted" ? "Serve il tuo permesso per chiedere a Claude: riprova e consenti." :
+                   e && e.code === "images_unavailable" ? "Foto non supportate in questa anteprima" : "Riconoscimento non riuscito: riprova");
+    }
+  }
   if (path === "/api/saved-recipes" && method === "GET"){
     needUser(); db.recipes = db.recipes || {};
     return { recipes: Object.entries(db.recipes).sort((a, b) => b[1].created - a[1].created).map(([id, v]) => ({ ...v, id })) };
