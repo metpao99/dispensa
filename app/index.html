@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Dispensa</title>
 <meta name="theme-color" id="themeColor" content="#f3f4ee">
 <script>
@@ -34,6 +34,7 @@ try { var t = JSON.parse(localStorage.getItem("dispensa-theme-vars") || "null");
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html,body{margin:0}
+html{touch-action:pan-x pan-y}  /* niente pinch e doppio tocco per ingrandire: deve sembrare un'app */
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
 .wrap{max-width:640px;margin:0 auto;padding:calc(14px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(104px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 header{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -63,6 +64,20 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .tag.bad{background:var(--bad-bg);color:var(--bad)} .tag.out{background:var(--line);color:var(--fg)}
 .empty{border:1.5px dashed var(--line);border-radius:8px;padding:28px 18px;text-align:center;color:var(--muted)}
 .empty strong{display:block;color:var(--fg);font-size:1.05rem;margin-bottom:4px}
+/* schermata di aggiornamento */
+.updover{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:24px;background:rgba(10,12,8,.35);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);animation:updin .3s ease-out}
+.updcard{width:min(300px,100%);border-radius:28px;padding:28px 22px 20px;text-align:center;position:relative}
+.updicon{width:72px;height:72px;border-radius:17px;display:block;margin:6px auto 0;animation:updpulse 1.6s ease-in-out infinite}
+.updring{position:absolute;left:50%;top:22px;width:94px;height:94px;margin-left:-47px;border-radius:50%;border:3px solid transparent;border-top-color:var(--accent);border-right-color:var(--accent);animation:spin 1s linear infinite}
+.updover.done .updring{animation:none;border-color:var(--accent);opacity:.9}
+.updover.done .updicon{animation:none}
+.updover.fail .updring{animation:none;border-color:var(--bad)}
+.updstep{font-weight:700;margin:22px 0 10px;min-height:1.45em}
+.updbar{height:6px;border-radius:3px;background:color-mix(in srgb,var(--fg) 10%,transparent);overflow:hidden}
+.updbar i{display:block;height:100%;width:6%;border-radius:3px;background:var(--accent);transition:width .8s cubic-bezier(.32,.72,0,1)}
+.updnote{font-size:.8rem;color:var(--muted);margin:10px 0 0}
+@keyframes updpulse{50%{transform:scale(.92)}}
+@keyframes updin{from{opacity:0}}
 /* barra in basso: vetro liquido (sfocatura + riflesso + bordo luminoso) */
 .tabbar{position:fixed;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:12px;padding:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left));z-index:5;pointer-events:none}
 .tabbar>*{pointer-events:auto}
@@ -108,7 +123,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .sheet.dragging::before,.sheet.dragging .panel{transition:none}
 .grab{display:flex;justify-content:center;align-items:center;height:22px;margin:-14px 0 2px;cursor:grab;touch-action:none}
 .grab::before{content:"";width:38px;height:5px;border-radius:3px;background:var(--line)}
-.panel{position:relative;transition:transform var(--sheet-t,.42s) cubic-bezier(.32,.72,0,1);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--bg);width:100%;max-width:640px;max-height:94%;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.panel{position:relative;transition:transform var(--sheet-t,.42s) cubic-bezier(.32,.72,0,1);overscroll-behavior:contain;background:var(--bg);width:100%;max-width:640px;max-height:94%;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 .panel h2{font-weight:800;font-size:1.35rem;margin:0 0 4px}
 .panel p{margin:6px 0;color:var(--muted);font-size:.9rem}
 .form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
@@ -417,6 +432,17 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
 </div>
 
 <div class="toast" id="toast" hidden></div>
+
+<!-- aggiornamento in corso -->
+<div class="updover" id="updOverlay" hidden role="alertdialog" aria-live="polite" aria-labelledby="updStep">
+  <div class="glass updcard">
+    <img src="icons/icon-192.png" alt="" class="updicon">
+    <div class="updring" id="updRing" aria-hidden="true"></div>
+    <p class="updstep" id="updStep">Preparo l'aggiornamento…</p>
+    <div class="updbar" aria-hidden="true"><i id="updBar"></i></div>
+    <p class="updnote">Non chiudere l'app</p>
+  </div>
+</div>
 
 <script src="zxing.min.js"></script>
 <script src="app.js"></script>

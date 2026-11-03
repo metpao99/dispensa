@@ -16,18 +16,43 @@ let aiOn = ls.get("dispensa-ai", false);
 let online = true, flushing = false;
 let filter = "Tutti", query = "", editing = null;
 
+/* ---------------- niente zoom: deve sembrare un'app ---------------- */
+for (const ev of ["gesturestart", "gesturechange", "gestureend"])
+  document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+document.addEventListener("touchmove", e => { if (e.touches.length > 1 && e.cancelable) e.preventDefault(); }, { passive: false });
+// il doppio tocco per ingrandire lo ferma il CSS (touch-action su html)
+
+/* Safari (web app sulla Home), al ritorno dalla fotocamera, a volte non ridisegna lo schermo:
+   aspettiamo che la pagina sia di nuovo visibile e forziamo un ridisegno. */
+function whenVisible(){
+  return new Promise(ok => {
+    const go = () => requestAnimationFrame(() => requestAnimationFrame(ok));
+    if (document.visibilityState === "visible") return go();
+    const h = () => { if (document.visibilityState === "visible"){ document.removeEventListener("visibilitychange", h); go(); } };
+    document.addEventListener("visibilitychange", h);
+  });
+}
+function repaint(){
+  const y = window.scrollY, b = document.body;
+  b.style.display = "none"; void b.offsetHeight; b.style.display = "";
+  window.scrollTo(0, y);
+}
+
 /* ---------------- pannelli (stile iOS) ----------------
    openSheet/closeSheet animano l'entrata e l'uscita dal basso. Ogni pannello si può
    chiudere tirandolo giù: dalla maniglia sempre, dal contenuto solo quando è già in cima. */
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const SHEET_MS = 420;
 const sheetClosers = {};           // chiusure con effetti extra (es. la scheda prodotto azzera "editing")
-function openSheet(id){
+function openSheet(id, instant){
   const s = $(id), p = s.querySelector(".panel");
   clearTimeout(s._t);
   const wasHidden = s.hidden || s.classList.contains("closing");
   s.classList.remove("closing", "dragging");
   if (!wasHidden) return;
+  if (s.hidden && instant){                // senza animazione (es. al ritorno dalla fotocamera)
+    s.hidden = false; p.style.transform = ""; s.style.removeProperty("--dim"); return;
+  }
   if (s.hidden){
     s.hidden = false;
     s.classList.add("dragging");            // posizione di partenza senza transizione
@@ -269,12 +294,14 @@ $("expPhoto").onchange = async e => {
    la scheda non ridisegnata al ritorno. */
 let recFromFab = false, recRun = 0;
 $("recBtn").onclick = () => { recFromFab = false; $("recPhoto").value = ""; $("recPhoto").click(); };
-$("recPhoto").onchange = e => {
+$("recPhoto").onchange = async e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
-  if (recFromFab || !formOpenNew()) openForm(null, "", null, "", true);
+  const open = recFromFab || !formOpenNew();
   recFromFab = false;
-  // piccolo ritardo: la scheda si apre e si disegna prima del lavoro sulla foto
-  setTimeout(() => recognizeFile(f), 60);
+  await whenVisible();                       // di nuovo in primo piano dopo la fotocamera
+  if (open) openForm(null, "", null, "", true, true);
+  repaint();
+  recognizeFile(f);
 };
 function withTimeout(p, ms, text){
   return Promise.race([p, new Promise((_, ko) => setTimeout(() => ko(new Error(text)), ms))]);
@@ -291,7 +318,7 @@ async function recognizeFile(f){
     const r = await withTimeout(api("POST", "/api/recognize", { image: await blobToB64(jpg) }, jpg), 120000,
                                 "Il NAS non ha risposto in tempo: riprova.");
     if (run !== recRun) return;                         // nel frattempo è partita un'altra foto
-    if (!formOpenNew()) openForm(null, "", null, "", true);   // la scheda è stata chiusa: la riapro
+    if (!formOpenNew()) openForm(null, "", null, "", true, true);   // la scheda è stata chiusa: la riapro
     if (!r.nome){ say("err", "Non riconosco il prodotto: inquadra bene la confezione, con buona luce."); return; }
     const filled = [];
     const put = (id, v, label) => { if (v && !$(id).value.trim()){ $(id).value = v; filled.push(label); } };
@@ -307,7 +334,7 @@ async function recognizeFile(f){
   } catch (err) {
     if (run !== recRun) return;
     say("err", err instanceof AuthError ? "Scegli prima chi sei." : (err.message || "Riconoscimento non riuscito."));
-  } finally { clearInterval(tick); if (run === recRun) btn.disabled = false; }
+  } finally { clearInterval(tick); if (run === recRun){ btn.disabled = false; repaint(); } }
 }
 
 /* ---------------- intelligenza artificiale (impostazioni) ---------------- */
@@ -436,19 +463,32 @@ async function runUpdate(btns, say, before, already){
     catch (e) { if (e.status !== 409){ say(e.message || "Aggiornamento non partito", true); btns.forEach(b => b.disabled = false); return; } }
   }
   say("Aggiornamento in corso: copia del database, download e riavvio. Non chiudere l'app…");
-  const t0 = Date.now();
+  const ov = $("updOverlay"), step = $("updStep"), bar = $("updBar");
+  const show = (t, pct) => { step.textContent = t; bar.style.width = pct + "%"; };
+  ov.className = "updover"; ov.hidden = false; show("Copio il database…", 12);
+  const steps = [[3000, "Scarico la nuova versione…", 35], [7000, "Installo i file…", 58], [11000, "Riavvio la Dispensa…", 78]];
+  const t0 = Date.now(); let down = false;
+  const end = (t, bad) => { ov.hidden = true; say(t, bad); btns.forEach(b => b.disabled = false); };
   while (Date.now() - t0 < 120000){
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
+    const spent = Date.now() - t0;
+    if (!down) for (const [ms, t, pct] of steps) if (spent >= ms && parseFloat(bar.style.width) < pct) show(t, pct);
     let s;
-    try { s = await api("GET", "/api/update"); } catch { continue; }   // il server si sta riavviando
-    if (s.failed){ say("Aggiornamento non riuscito: " + s.failed, true); btns.forEach(b => b.disabled = false); return; }
+    try { s = await api("GET", "/api/update"); }
+    catch { down = true; show("Riavvio la Dispensa…", 85); continue; }   // il server si sta riavviando
+    if (s.failed){ ov.classList.add("fail"); show("Non riuscito", 100); await new Promise(r => setTimeout(r, 1200));
+      return end("Aggiornamento non riuscito: " + s.failed, true); }
     if (!s.running && (s.installed.sha !== before || !s.available)){
-      say("Fatto! Ricarico l'app…"); $("updBanner").hidden = true;
-      setTimeout(() => location.reload(), 800); return;
+      $("updBanner").hidden = true;
+      ov.classList.add("done"); show("Fatto! Riapro l'app…", 100);
+      try { sessionStorage.setItem("dispensa-updated", "1"); } catch {}
+      setTimeout(() => location.reload(), 1100); return;
     }
   }
-  say("Il NAS non ha ancora finito: riapri l'app tra poco (i dettagli sono in update.log).", true);
+  end("Il NAS non ha ancora finito: riapri l'app tra poco (i dettagli sono in update.log).", true);
 }
+// dopo il ricaricamento: conferma
+try { if (sessionStorage.getItem("dispensa-updated")){ sessionStorage.removeItem("dispensa-updated"); setTimeout(() => toast("App aggiornata"), 400); } } catch {}
 async function checkUpdate(){
   try { const s = await api("GET", "/api/update"); $("updBanner").hidden = !(s.owner && s.available && !s.running); } catch {}
 }
@@ -886,7 +926,7 @@ function bump(it, d){
 }
 
 /* ---------------- scheda prodotto ---------------- */
-function openForm(it, code, template, note, noFocus){
+function openForm(it, code, template, note, noFocus, instant){
   editing = it || null;
   const t = template || {};
   $("sheetTitle").textContent = it ? "Modifica prodotto" : "Nuovo prodotto";
@@ -903,7 +943,7 @@ function openForm(it, code, template, note, noFocus){
   $("readDate").hidden = !aiOn; $("readMsg").hidden = true;
   $("recRow").hidden = !aiOn || !!it; $("recMsg").hidden = true; $("recBtn").disabled = false;
   $("delRow").hidden = !it; delArmed = false; $("delBtn").textContent = "Elimina prodotto";
-  openSheet("sheet");
+  openSheet("sheet", instant);
   if (!it && !noFocus) setTimeout(() => $("f-name").focus(), 80);
 }
 function closeForm(){ closeSheet("sheet"); editing = null; }
