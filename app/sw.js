@@ -1,6 +1,6 @@
 // Cache dell'app per l'uso offline. Le chiamate /api/ vanno sempre al NAS.
 // Quando modifichi i file dell'app, cambia il numero di versione.
-const CACHE = "dispensa-nas-v20";
+const CACHE = "dispensa-nas-v21";
 const FILES = ["./", "index.html", "app.js", "zxing.min.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
@@ -20,12 +20,13 @@ self.addEventListener("fetch", e => {
 // Notifiche: il segnale arriva vuoto, il testo si chiede al NAS.
 self.addEventListener("push", e => {
   e.waitUntil((async () => {
-    let title = "Prodotti in scadenza", body = "Apri la Dispensa per vedere cosa scade.";
+    let title = "Prodotti in scadenza", body = "Apri la Dispensa per vedere cosa scade.", tag = "scadenze";
     try {
       const r = await fetch("/api/alerts", { credentials: "same-origin", cache: "no-store" });
-      if (r.ok){ const a = await r.json(); if (a.count){ title = a.title; body = a.body; } else { body = "Per ora nessun prodotto in scadenza."; } }
+      // il NAS dice cosa mostrare: avviso di scadenza oppure nuova versione dell'app (tag "aggiornamento")
+      if (r.ok){ const a = await r.json(); if (a.count){ title = a.title; body = a.body; tag = a.tag || tag; } else { body = "Per ora nessun prodotto in scadenza."; } }
     } catch {}
-    await self.registration.showNotification(title, { body, icon: "icons/icon-192.png", badge: "icons/icon-192.png", tag: "scadenze" });
+    await self.registration.showNotification(title, { body, icon: "icons/icon-192.png", badge: "icons/icon-192.png", tag });
   })());
 });
 self.addEventListener("notificationclick", e => {

@@ -428,6 +428,49 @@ def check_updates():
         if latest:
             _upd["latest"] = latest
         _upd["error"], _upd["checked"] = err, int(time.time() * 1000)
+    if latest and latest["sha"] != installed_version()["sha"]:
+        try:
+            notify_update(latest)
+        except Exception as e:
+            print("notify_update:", e, flush=True)
+
+
+def meta_get(key):
+    r = db().execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return r["value"] if r else None
+
+
+def meta_set(key, value):
+    db().execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))
+
+
+def notify_update(latest):
+    """Una sola notifica push per versione, solo alla proprietaria. Il testo lo legge poi il service
+    worker da /api/alerts (update_pending), come per gli avvisi di scadenza."""
+    with _lock:
+        if meta_get("update_notified") == latest["sha"]:
+            return
+        meta_set("update_notified", latest["sha"])
+        meta_set("update_pending", latest["sha"])
+        db().commit()
+        oid = owner_id()
+        if oid:
+            push_user(oid)
+
+
+def update_alert(user_id):
+    """Se c'è una notifica di aggiornamento da consegnare alla proprietaria, la restituisce (una volta)."""
+    pending = meta_get("update_pending")
+    if not pending or user_id != owner_id():
+        return None
+    meta_set("update_pending", "")
+    db().commit()
+    with _upd_lock:
+        latest = _upd["latest"]
+    if not latest or latest["sha"] != pending or pending == installed_version()["sha"]:
+        return None
+    return {"count": 1, "kind": "update", "tag": "aggiornamento", "title": "Nuova versione della Dispensa",
+            "body": (latest["message"] + " · " if latest.get("message") else "") + "Apri l'app per aggiornare."}
 
 
 def check_if_stale(wait=5):
@@ -513,6 +556,8 @@ def db():
                 endpoint TEXT PRIMARY KEY, user_id INTEGER NOT NULL, origin TEXT, created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS push_prefs(
                 user_id INTEGER PRIMARY KEY, days INTEGER NOT NULL, hour INTEGER NOT NULL, last_sent TEXT);
+            CREATE TABLE IF NOT EXISTS meta(
+                key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS off_cache(
                 code TEXT PRIMARY KEY, data TEXT NOT NULL, fetched INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS items(
@@ -685,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with _lock:
                 if path == "/api/alerts":
-                    return self.send_json(200, alerts_for(u["id"]))
+                    return self.send_json(200, update_alert(u["id"]) or alerts_for(u["id"]))
                 row = db().execute("SELECT days, hour FROM push_prefs WHERE user_id = ?", (u["id"],)).fetchone()
                 n = db().execute("SELECT COUNT(*) FROM push_subs WHERE user_id = ?", (u["id"],)).fetchone()[0]
             return self.send_json(200, {"days": row["days"] if row else 3, "hour": row["hour"] if row else 9, "devices": n})
