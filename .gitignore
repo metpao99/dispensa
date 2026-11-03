@@ -1,0 +1,23 @@
+# Dati (restano solo sul NAS)
+dispensa.db
+dispensa.db-wal
+dispensa.db-shm
+backups/
+
+# Credenziali
+claude-token.json
+vapid.json
+ai-key.txt
+github-token.txt
+
+# File generati / di esecuzione
+VERSION
+server.log
+server.pid
+__pycache__/
+*.pyc
+*.zip
+
+# Tailscale: solo gli script .sh vanno nel repository
+tailscale/*
+!tailscale/*.sh

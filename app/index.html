@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dispensa</title>
+<meta name="theme-color" id="themeColor" content="#f3f4ee">
+<script>
+/* applica subito il tema salvato, prima che la pagina si disegni */
+try { var t = JSON.parse(localStorage.getItem("dispensa-theme-vars") || "null");
+  if (t) { for (var k in t.vars) document.documentElement.style.setProperty("--" + k, t.vars[k]);
+    document.documentElement.style.colorScheme = t.dark ? "dark" : "light";
+    document.getElementById("themeColor").setAttribute("content", t.vars.bg); } } catch (e) {}
+</script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dispensa">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<style>
+:root{
+  --bg:#f3f4ee; --card:#fbfcf8; --fg:#1f2419; --muted:#69705e; --line:#d9dccf;
+  --accent:#3f5f22; --accent-fg:#f6f8f0; --warn:#b07a0c; --warn-bg:#f6ebcc; --bad:#a3361f; --bad-bg:#f6dcd4; --ok-bg:#e3ebd5;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15180f; --card:#1e2217; --fg:#e8ebe0; --muted:#9aa18d; --line:#323829;
+  --accent:#9cc06a; --accent-fg:#16200b; --warn:#e2b04a; --warn-bg:#3a2f12; --bad:#ec8a72; --bad-bg:#3d1d15; --ok-bg:#25301a; color-scheme:dark}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
+.wrap{max-width:640px;margin:0 auto;padding:calc(14px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(110px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-weight:800;font-size:1.9rem;letter-spacing:-.02em;margin:0}
+.iconbtn{background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:40px;height:40px;display:grid;place-items:center;cursor:pointer}
+.iconbtn svg{width:20px;height:20px}
+.count{font-family:var(--mono);font-size:.78rem;color:var(--muted);margin:2px 0 0}
+.banner{margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--warn-bg);color:var(--fg);font-size:.88rem;display:flex;gap:10px;align-items:center;justify-content:space-between}
+.banner button{flex:none;font:600 .85rem var(--sans);border:0;background:var(--fg);color:var(--bg);border-radius:6px;padding:6px 10px}
+.tools{display:flex;flex-direction:column;gap:10px;margin:14px 0 12px}
+input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%;min-width:0}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px 2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;font:500 .85rem var(--sans);padding:6px 12px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--fg)}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{display:grid;grid-template-columns:1fr auto;gap:4px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
+.item .name{font-weight:650;font-size:1.02rem;min-width:0;overflow-wrap:anywhere}
+.item .meta{grid-column:1;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:.8rem;color:var(--muted);min-width:0}
+.code{font-family:var(--mono);font-size:.74rem;letter-spacing:.03em}
+.qty{grid-row:1/3;grid-column:2;display:flex;align-items:center;gap:4px}
+.qty button{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:600 1.15rem var(--sans)}
+.qty output{min-width:2.4ch;text-align:center;font:600 1.05rem var(--mono)}
+.tag{font:700 .68rem var(--sans);text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:4px}
+.tag.ok{background:var(--ok-bg);color:var(--accent)} .tag.warn{background:var(--warn-bg);color:var(--warn)}
+.tag.bad{background:var(--bad-bg);color:var(--bad)} .tag.out{background:var(--line);color:var(--fg)}
+.empty{border:1.5px dashed var(--line);border-radius:8px;padding:28px 18px;text-align:center;color:var(--muted)}
+.empty strong{display:block;color:var(--fg);font-size:1.05rem;margin-bottom:4px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:12px max(16px,env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));z-index:5}
+.bar .in{max-width:640px;margin:0 auto;display:flex;gap:8px}
+.btn{font:700 1rem var(--sans);border-radius:12px;padding:14px 16px;border:1px solid var(--line);background:var(--card);color:var(--fg);display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.primary{flex:1;background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.danger{color:var(--bad)}
+.btn svg{width:22px;height:22px}
+.hiddenfile{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.sheet{position:fixed;inset:0;background:rgba(10,12,8,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.panel{background:var(--bg);width:100%;max-width:640px;max-height:94%;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.panel h2{font-weight:800;font-size:1.35rem;margin:0 0 4px}
+.panel p{margin:6px 0;color:var(--muted);font-size:.9rem}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.form label{display:flex;flex-direction:column;gap:5px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);min-width:0}
+.form .full{grid-column:1/-1}
+.actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.actions .btn{flex:1}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:.9rem;z-index:60;max-width:calc(100% - 32px)}
+.hright{display:flex;gap:8px;align-items:center}
+.userchip{font:600 .85rem var(--sans);border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:99px;padding:8px 12px;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sync{font-size:.78rem;color:var(--muted);margin:4px 0 0}
+.sync.off{color:var(--warn)}
+.login{position:fixed;inset:0;background:var(--bg);z-index:50;display:flex;align-items:center;justify-content:center;padding:calc(24px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.loginbox{width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px}
+.loginbox h1{font-size:2.2rem}
+.loginbox p{margin:0;color:var(--muted)}
+.userlist{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.userlist .btn{width:100%;font-size:1.1rem;padding:18px}
+.status{font-size:.88rem;color:var(--muted)}
+.addrow{display:flex;gap:8px;margin-top:6px}
+.addrow .btn{flex:none;padding:10px 14px}
+.people{display:flex;flex-direction:column;gap:8px;margin:12px 0 4px}
+.person{display:flex;gap:8px;align-items:center}
+.person input{flex:1}
+.person .btn{flex:none;padding:10px 12px;font-size:.9rem}
+.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;margin:14px -16px 0;padding:0 16px;border-bottom:1px solid var(--line)}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:none;font:650 .98rem var(--sans);background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);padding:10px 12px 9px;display:flex;align-items:center;gap:6px}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.tab .badge{font:700 .7rem var(--sans);background:var(--warn-bg);color:var(--warn);border-radius:99px;padding:1px 7px}
+.tab.add{color:var(--muted);font-weight:500}
+.ideas{display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--ok-bg);border-radius:8px;padding:10px 12px;margin:0 0 10px;font-size:.9rem}
+.ideas button{flex:none;font:700 .88rem var(--sans);border:0;background:var(--accent);color:var(--accent-fg);border-radius:8px;padding:8px 12px}
+.recipes{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.recipe{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.recipe h3{margin:0;font-size:1.08rem;line-height:1.3}
+.recipe .rmeta{font-size:.8rem;color:var(--muted)}
+.recipe p{margin:0;font-size:.9rem;color:var(--fg)}
+.uses{display:flex;flex-wrap:wrap;gap:6px}
+.uses span{font-size:.78rem;padding:3px 8px;border-radius:99px;background:var(--warn-bg);color:var(--fg)}
+.uses span.have{background:var(--ok-bg)}
+.recipe .missing{font-size:.85rem;color:var(--muted)}
+.recipe details summary{cursor:pointer;font-weight:600;font-size:.9rem}
+.recipe ol{margin:8px 0 0;padding-left:20px;font-size:.9rem;display:flex;flex-direction:column;gap:6px}
+.recipe .ractions{display:flex;gap:8px}
+.recipe .ractions .btn{flex:1;padding:10px;font-size:.92rem}
+.thinking{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.9rem;padding:12px 0}
+.thinking::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.exprow{display:flex;gap:6px;min-width:0}
+.exprow input{flex:1;min-width:0}
+.readbtn{flex:none;width:44px;border:1px solid var(--accent);background:var(--ok-bg);color:var(--accent);border-radius:8px;display:grid;place-items:center}
+.readbtn svg{width:20px;height:20px}
+.readbtn[disabled]{opacity:.5}
+.readmsg{margin:-4px 0 0;font-size:.82rem;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
+.readmsg.err{color:var(--bad)}
+.notify{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.nrow{display:grid;grid-template-columns:5.5em 1fr;gap:10px;align-items:center;font-size:.92rem}
+.swipe{position:relative;border-radius:8px;overflow:hidden}
+.swipe-bg{position:absolute;inset:0;background:var(--bad-bg);color:var(--bad);display:flex;align-items:center;justify-content:flex-end;padding:0 20px;font-weight:700;border-radius:8px;transition:background .15s,color .15s}
+.swipe-bg.armed{background:var(--bad);color:var(--card)}
+.swipe .item{position:relative;touch-action:pan-y;transition:transform .18s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.toast{display:flex;gap:14px;align-items:center}
+.toast button{font:700 .9rem var(--sans);background:none;border:0;color:var(--bg);text-decoration:underline;padding:4px 2px}
+.palettes{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:10px}
+.pal{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:600 .85rem var(--sans);text-align:left}
+.pal[aria-pressed="true"]{border:2px solid var(--fg);padding:9px}
+.pal .sw{display:flex;gap:4px}
+.pal .sw i{width:18px;height:18px;border-radius:50%;border:1px solid rgba(127,127,127,.35);display:block}
+.aibox-row{display:flex;gap:8px}
+.aibox-row input{flex:1;min-width:0;font-family:var(--mono);font-size:.85rem}
+.aibox-row .btn{flex:none;padding:10px 14px}
+.cmd{display:block;font-family:var(--mono);font-size:.8rem;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all;-webkit-user-select:all}
+.aistate{font-size:.9rem;font-weight:600}
+.aistate.on{color:var(--accent)}
+details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-top:6px}
+.section-label{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:18px}
+.status.err{color:var(--bad)}
+/* scanner a schermo intero */
+.scanner{position:fixed;inset:0;background:#000;z-index:40;display:flex;flex-direction:column}
+.scanner video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scanner .frame{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);width:min(82vw,420px);height:min(34vw,170px);border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)}
+.scanner .frame::after{content:"";position:absolute;left:8%;right:8%;top:50%;height:2px;background:#ff5a3c;opacity:.85}
+.scanner .hint{position:absolute;left:0;right:0;top:calc(42% + min(17vw,85px) + 18px);text-align:center;color:#fff;font-size:.95rem;padding:0 24px}
+.scanner .sbar{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;padding:14px max(16px,env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.scanner .sbar .btn{flex:1;background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.3)}
+.scanner .top{position:absolute;top:calc(12px + env(safe-area-inset-top));right:max(16px,env(safe-area-inset-right))}
+.scanner .top button{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:8px 12px;font:600 .9rem var(--sans)}
+@media (prefers-reduced-motion:no-preference){.panel{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="appTitle">Dispensa</h1>
+      <p class="count" id="count"></p>
+    </div>
+    <div class="hright">
+    <button class="userchip" id="userChip" aria-label="Cambia utente"></button>
+    <button class="iconbtn" id="menuBtn" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    </div>
+  </header>
+  <p class="sync" id="sync" hidden></p>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Ambienti"></div>
+  <div class="banner" id="backupBanner" hidden><span id="backupText"></span><button id="backupNow">Backup</button></div>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Cerca per nome, nota o codice" aria-label="Cerca">
+    <div class="chips" id="chips" role="group" aria-label="Filtro"></div>
+  </div>
+  <div class="banner" id="aiBanner" hidden><span id="aiBannerText"></span><button id="aiBannerBtn">Apri</button></div>
+  <div class="ideas" id="ideas" hidden><span id="ideasText"></span><button type="button" id="ideasBtn">Idee ricette</button></div>
+  <div class="list" id="list"></div>
+</div>
+
+<div class="bar"><div class="in">
+  <button class="btn primary" id="scanBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>
+    Scansiona
+  </button>
+  <button class="btn" id="addBtn">+ Manuale</button>
+</div></div>
+
+<input id="photo" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+<input id="expPhoto" class="hiddenfile" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+<input id="importFile" class="hiddenfile" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
+
+<!-- scheda prodotto -->
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <h2 id="sheetTitle">Nuovo prodotto</h2>
+    <div class="code" id="sheetCode"></div>
+    <form class="form" id="form" autocomplete="off">
+      <label class="full">Nome<input id="f-name" required placeholder="es. Pelati Mutti 400 g"></label>
+      <label>Barcode<input id="f-code" inputmode="numeric" placeholder="facoltativo"></label>
+      <label>Ambiente<select id="f-space"></select></label>
+      <label>Quantità<input id="f-qty" type="number" inputmode="numeric" min="0" step="1" value="1"></label>
+      <label>Scadenza
+        <span class="exprow"><input id="f-exp" type="date"><button type="button" class="readbtn" id="readDate" aria-label="Leggi la scadenza da una foto" title="Leggi dalla foto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button></span>
+      </label>
+      <p class="readmsg full" id="readMsg" hidden></p>
+      <label class="full">Categoria<input id="f-cat" list="cats" placeholder="es. Conserve, Pasta, Spezie"></label>
+      <label class="full">Note<textarea id="f-note" rows="3" placeholder="Prezzo, dove l'hai preso, quando ricomprarlo…"></textarea></label>
+      <div class="actions full">
+        <button class="btn primary" type="submit" id="saveBtn">Salva</button>
+        <button class="btn" type="button" id="cancelBtn">Annulla</button>
+      </div>
+      <div class="actions full" id="delRow" hidden>
+        <button class="btn danger" type="button" id="delBtn">Elimina prodotto</button>
+      </div>
+    </form>
+    <datalist id="cats"></datalist>
+  </div>
+</div>
+
+<!-- inserimento manuale del codice -->
+<div class="sheet" id="codeSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="codeTitle">
+    <h2 id="codeTitle">Codice a mano</h2>
+    <p id="codeMsg">Scrivi le cifre stampate sotto il barcode.</p>
+    <form class="form" id="codeForm">
+      <label class="full">Barcode<input id="m-code" inputmode="numeric" placeholder="8001234567890"></label>
+      <div class="actions full">
+        <button class="btn primary" type="submit">Continua</button>
+        <button class="btn" type="button" id="codeCancel">Annulla</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ricette -->
+<div class="sheet" id="recipeSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="recipeTitle">
+    <h2 id="recipeTitle">Idee per cosa scade</h2>
+    <p id="recipeIntro"></p>
+    <div id="recipeStatus"></div>
+    <div class="recipes" id="recipeList"></div>
+    <div class="actions">
+      <button class="btn" type="button" id="recipeMore">Altre idee</button>
+      <button class="btn" type="button" id="recipeClose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<!-- nuovo ambiente -->
+<div class="sheet" id="spaceSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="spaceTitle">
+    <h2 id="spaceTitle">Nuovo ambiente</h2>
+    <p>Ogni ambiente ha la sua lista: per esempio Frigo, Freezer, Cantina, Bagno.</p>
+    <form class="form" id="spaceForm" autocomplete="off">
+      <label class="full">Nome<input id="s-name" maxlength="40" placeholder="es. Freezer"></label>
+      <div class="actions full">
+        <button class="btn primary" type="submit">Crea</button>
+        <button class="btn" type="button" id="spaceCancel">Annulla</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- backup -->
+<div class="sheet" id="menuSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+    <h2 id="menuTitle">Menu</h2>
+    <p>La dispensa è salvata sul NAS ed è condivisa. Il backup esporta tutto in un file .json; “Importa backup” serve anche a portare qui i prodotti della vecchia versione.</p>
+    <p id="lastBackup"></p>
+    <div class="section-label">Aspetto</div>
+    <div class="nrow" style="margin-top:10px">
+      <label for="themeMode">Modalità</label>
+      <select id="themeMode"><option value="auto">Automatica (come l'iPhone)</option><option value="light">Chiara</option><option value="dark">Scura</option></select>
+    </div>
+    <div class="palettes" id="palettes" role="group" aria-label="Colori"></div>
+    <div class="section-label">Avvisi di scadenza</div>
+    <div class="notify">
+      <div class="nrow">
+        <label for="n-days">Avvisami</label>
+        <select id="n-days">
+          <option value="0">il giorno stesso</option><option value="1">1 giorno prima</option><option value="2">2 giorni prima</option>
+          <option value="3">3 giorni prima</option><option value="5">5 giorni prima</option><option value="7">7 giorni prima</option>
+          <option value="10">10 giorni prima</option><option value="14">14 giorni prima</option>
+        </select>
+      </div>
+      <div class="nrow">
+        <label for="n-hour">alle ore</label>
+        <select id="n-hour"></select>
+      </div>
+      <p class="status" id="n-status"></p>
+      <div class="actions">
+        <button class="btn primary" type="button" id="n-on">Attiva su questo telefono</button>
+        <button class="btn" type="button" id="n-test" hidden>Invia una prova</button>
+      </div>
+    </div>
+    <div class="section-label">Ambienti</div>
+    <div class="people" id="spaceList"></div>
+    <div class="section-label">Persone</div>
+    <div class="people" id="peopleList"></div>
+    <div class="actions">
+      <button class="btn primary" id="exportBtn">Esporta backup</button>
+      <button class="btn" id="importBtn">Importa backup</button>
+    </div>
+    <div class="section-label">Intelligenza artificiale</div>
+    <div class="notify" id="aiBox"></div>
+    <div class="section-label">Ricette</div>
+    <div class="nrow" id="assistantRow" style="margin-top:10px">
+      <label for="assistant">Chiedi a</label>
+      <select id="assistant"><option value="claude">Claude</option><option value="chatgpt">ChatGPT</option></select>
+    </div>
+    <p class="status" id="assistantNote"></p>
+    <div class="actions"><button class="btn" id="bookBtn">Ricettario</button></div>
+    <div class="actions">
+      <button class="btn" id="switchUser">Cambia utente</button>
+      <button class="btn" id="menuClose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<!-- scanner -->
+<div class="scanner" id="scanner" hidden>
+  <video id="video" playsinline muted autoplay></video>
+  <div class="frame" aria-hidden="true"></div>
+  <div class="hint" id="scanHint">Inquadra il barcode dentro il riquadro</div>
+  <div class="top"><button id="torchBtn" hidden>Torcia</button></div>
+  <div class="sbar">
+    <button class="btn" id="typeBtn">Scrivi codice</button>
+    <button class="btn" id="photoBtn">Da foto</button>
+    <button class="btn" id="closeScan">Chiudi</button>
+  </div>
+</div>
+
+<div class="login" id="login" hidden>
+  <div class="loginbox" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <h1 id="loginTitle">Dispensa</h1>
+    <p>Chi sei?</p>
+    <div class="userlist" id="userList"></div>
+    <form class="addrow" id="addPersonForm" autocomplete="off">
+      <input id="newPerson" maxlength="40" placeholder="Aggiungi una persona" aria-label="Nome della nuova persona">
+      <button class="btn" type="submit">Aggiungi</button>
+    </form>
+    <p class="status" id="loginMsg"></p>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="zxing.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
