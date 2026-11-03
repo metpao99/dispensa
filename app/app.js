@@ -1,6 +1,10 @@
 (() => {
 "use strict";
+/* Versione dell'app: si aumenta a ogni push su main (vedi CLAUDE.md).
+   Piccole modifiche e correzioni: +0.1 (0.1 → 0.2). Miglioramenti grandi: unità (0.9 → 1.0). */
+const APP_VERSION = "0.1";
 const $ = id => document.getElementById(id);
+$("appVer").textContent = "Dispensa " + APP_VERSION;
 const SPACES_KEY = "dispensa-spaces", CUR_KEY = "dispensa-current-space";
 const CACHE_KEY = "dispensa-cache-v2", QUEUE_KEY = "dispensa-queue-v2", ME_KEY = "dispensa-me", BK = "dispensa-last-backup";
 const ls = {

@@ -52,6 +52,14 @@ regola del codice a barre). L'AI passa sempre da `generate()` nel server.
   si cambia con `showTab("home"|"recipes"|"menu")`.
 
 ## Pubblicare una modifica
+0. **Numero di versione — obbligatorio a ogni push su `main`.** Aumenta `APP_VERSION` in cima ad
+   `app/app.js` (si vede in fondo alla pagina Menu) e, di conseguenza, `CACHE` in `app/sw.js`.
+   - piccole modifiche e correzioni: si aumenta il decimale (`0.1` → `0.2` → … → `0.9` → `0.10`);
+   - miglioramenti grandi (una funzione nuova importante, una tappa della visione): si aumenta l'unità
+     e il decimale torna a 0 (`0.7` → `1.0`).
+   - Il messaggio di commit comincia con la versione, es. `v0.2: …`: è il testo che la proprietaria
+     vede nella finestra e nella notifica di aggiornamento.
+   - Punto di partenza: `0.1` (3 novembre 2026).
 1. Prova in locale su un'altra porta, con una **copia** del database:
    `python3 server.py --host 127.0.0.1 --port 8799` (non usare la porta 8765: è l'app in uso).
    Controlli rapidi: `python3 -m py_compile server.py update.py webpush.py` e `node --check app/app.js`.

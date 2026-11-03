@@ -125,7 +125,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .fab svg{width:27px;height:27px}
 .fab:active{transform:scale(.9)}
 .fab.off{opacity:0;transform:scale(.6);pointer-events:none}
+/* nessuna pagina può diventare più larga dello schermo: su iPhone la pagina si allargherebbe
+   e la barra in basso "fissa" scorrerebbe insieme al contenuto */
+body{overflow-x:clip}
+html,body{overscroll-behavior-y:none}   /* niente rimbalzo in fondo: su iOS trascina su anche la barra fissa */
+.view{overflow-x:clip}
+.view .cmd{max-width:100%}
 .view h1{margin-bottom:6px}
+.appver{text-align:center;color:var(--muted);font-size:.8rem;margin:26px 0 0;font-family:var(--mono)}
 .view>p{margin:6px 0;color:var(--muted);font-size:.9rem}
 @media (prefers-reduced-motion:no-preference){.view.enter{animation:viewin .28s cubic-bezier(.32,.72,0,1)}@keyframes viewin{from{opacity:0;transform:translateY(8px)}}}
 [data-dark] .glass{border-color:rgba(255,255,255,.14);box-shadow:0 10px 30px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3),inset 0 1px 1px rgba(255,255,255,.18),inset 0 -1px 1px rgba(255,255,255,.05);background:color-mix(in srgb,var(--card) 58%,transparent)}
@@ -202,7 +209,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .readmsg{margin:-4px 0 0;font-size:.82rem;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
 .readmsg.err{color:var(--bad)}
 .notify{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-.nrow{display:grid;grid-template-columns:5.5em 1fr;gap:10px;align-items:center;font-size:.92rem}
+.nrow{display:grid;grid-template-columns:5.5em minmax(0,1fr);gap:10px;align-items:center;font-size:.92rem}
 .swipe{position:relative;border-radius:8px;overflow:hidden}
 .swipe-bg{position:absolute;inset:0;background:var(--bad-bg);color:var(--bad);display:flex;align-items:center;justify-content:flex-end;padding:0 20px;font-weight:700;border-radius:8px;transition:background .15s,color .15s}
 .swipe-bg.armed{background:var(--bad);color:var(--card)}
@@ -364,6 +371,7 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     <div class="actions">
       <button class="btn" id="switchUser">Cambia utente</button>
     </div>
+    <p class="appver" id="appVer"></p>
 </div>
 
 
