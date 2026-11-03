@@ -2,7 +2,7 @@
 "use strict";
 /* Versione dell'app: si aumenta a ogni push su main (vedi CLAUDE.md).
    Piccole modifiche e correzioni: +0.1 (0.1 → 0.2). Miglioramenti grandi: unità (0.9 → 1.0). */
-const APP_VERSION = "0.2";
+const APP_VERSION = "0.3";
 const $ = id => document.getElementById(id);
 $("appVer").textContent = "Dispensa " + APP_VERSION;
 const SPACES_KEY = "dispensa-spaces", CUR_KEY = "dispensa-current-space";
@@ -967,6 +967,64 @@ async function switchUser(){
 /* ---------------- utilità ---------------- */
 const DAY = 864e5;
 function daysLeft(exp){ if (!exp) return null; const t = new Date(exp + "T00:00:00"), n = new Date(); n.setHours(0,0,0,0); return Math.round((t - n) / DAY); }
+/* scheda di un prodotto; compact = una riga sottile (nome, pallino della scadenza, quantità) */
+function itemCard(it, compact){
+  if (compact) return rowCard(it);
+  const card = el("div","item"); card.tabIndex = 0;
+  const meta = el("div","meta");
+  const tg = expTag(it); if (tg) meta.append(el("span","tag " + tg[0], tg[1]));
+  if (it.cat) meta.append(el("span",null,it.cat));
+  if (it.code) meta.append(el("span","code",it.code));
+  if (it.updatedBy) meta.append(el("span",null,"agg. da " + it.updatedBy + (it.updated ? " · " + ago(it.updated) : "")));
+  if (it.note){ const n = el("span",null, it.note.length > 40 ? it.note.slice(0,40) + "…" : it.note); n.style.fontStyle = "italic"; meta.append(n); }
+  const qty = el("div","qty");
+  const minus = el("button",null,"−"); minus.type = "button"; minus.setAttribute("aria-label","Togli uno");
+  const plus = el("button",null,"+"); plus.type = "button"; plus.setAttribute("aria-label","Aggiungi uno");
+  minus.onclick = e => { e.stopPropagation(); bump(it,-1); };
+  plus.onclick = e => { e.stopPropagation(); bump(it, 1); };
+  qty.append(minus, el("output",null,String(it.qty ?? 0)), plus);
+  card.append(el("div","name",it.name), qty, meta);
+  card.onclick = () => openForm(it);
+  card.onkeydown = e => { if (e.key === "Enter") openForm(it); };
+  return card;
+}
+function rowCard(it){
+  const card = el("div", "item row"); card.tabIndex = 0;
+  const tg = expTag(it);
+  const dot = el("span", "dot " + (tg ? tg[0] : "none")); if (tg) dot.title = tg[1];
+  const nm = el("div", "name", it.name);
+  if (tg && tg[0] !== "ok") nm.append(el("small", null, " · " + tg[1].toLowerCase()));
+  const qty = el("div", "qty");
+  const minus = el("button", null, "−"); minus.type = "button"; minus.setAttribute("aria-label", "Togli uno");
+  const plus = el("button", null, "+"); plus.type = "button"; plus.setAttribute("aria-label", "Aggiungi uno");
+  minus.onclick = e => { e.stopPropagation(); bump(it, -1); };
+  plus.onclick = e => { e.stopPropagation(); bump(it, 1); };
+  qty.append(minus, el("output", null, String(it.qty ?? 0)), plus);
+  card.append(dot, nm, qty);
+  card.onclick = () => openForm(it);
+  card.onkeydown = e => { if (e.key === "Enter") openForm(it); };
+  return card;
+}
+/* vista (schede/righe) e "chiudi tutte / apri tutte" */
+const VIEW_KEY = "dispensa-view", COLLAPSED_KEY = "dispensa-collapsed", NO_CAT = "Senza categoria";
+let viewMode = ls.get(VIEW_KEY, "cards") === "rows" ? "rows" : "cards";
+const collapsed = new Set(ls.get(COLLAPSED_KEY, []));
+let lastOrder = [];
+function renderListbar(order, canFold){
+  if (order) lastOrder = order;
+  const bar = $("listbar"); bar.hidden = !here().length;
+  for (const b of bar.querySelectorAll(".seg button")) b.setAttribute("aria-pressed", b.dataset.v === viewMode);
+  const fold = $("foldAll"), allClosed = lastOrder.length && lastOrder.every(c => collapsed.has(c));
+  fold.hidden = canFold === false || lastOrder.length < 2;
+  fold.textContent = allClosed ? "Apri tutte" : "Chiudi tutte";
+}
+for (const b of document.querySelectorAll("#listbar .seg button"))
+  b.onclick = () => { viewMode = b.dataset.v; ls.set(VIEW_KEY, viewMode); render(); };
+$("foldAll").onclick = () => {
+  const allClosed = lastOrder.every(c => collapsed.has(c));
+  for (const c of lastOrder) allClosed ? collapsed.delete(c) : collapsed.add(c);
+  ls.set(COLLAPSED_KEY, [...collapsed]); render();
+};
 function expTag(it){
   if (Number(it.qty) <= 0) return ["out","Finito"];
   const d = daysLeft(it.exp); if (d === null) return null;
@@ -1039,29 +1097,37 @@ function render(){
     const e = el("div","empty"); e.append(el("strong",null,`Niente in ${sp.name}`),
       (aiOn ? `Tocca il pulsante rotondo in basso e fotografa il prodotto: compilo io la scheda e finisce in ${sp.name}.`
              : `Tocca il pulsante rotondo in basso e inquadra il codice a barre: il prodotto finirà in ${sp.name}.`) + " Con “+” in alto lo scrivi a mano.");
-    list.append(e); renderBanner(); return;
+    list.append(e); renderListbar([], false); renderBanner(); return;
   }
   const rows = visible();
-  if (!rows.length){ list.append(el("div","empty","Nessun prodotto per questo filtro.")); renderBanner(); return; }
-  for (const it of rows){
-    const card = el("div","item"); card.tabIndex = 0;
-    const meta = el("div","meta");
-    const tg = expTag(it); if (tg) meta.append(el("span","tag " + tg[0], tg[1]));
-    if (it.cat) meta.append(el("span",null,it.cat));
-    if (it.code) meta.append(el("span","code",it.code));
-    if (it.updatedBy) meta.append(el("span",null,"agg. da " + it.updatedBy + (it.updated ? " · " + ago(it.updated) : "")));
-    if (it.note){ const n = el("span",null, it.note.length > 40 ? it.note.slice(0,40) + "…" : it.note); n.style.fontStyle = "italic"; meta.append(n); }
-    const qty = el("div","qty");
-    const minus = el("button",null,"−"); minus.type = "button"; minus.setAttribute("aria-label","Togli uno");
-    const plus = el("button",null,"+"); plus.type = "button"; plus.setAttribute("aria-label","Aggiungi uno");
-    minus.onclick = e => { e.stopPropagation(); bump(it,-1); };
-    plus.onclick = e => { e.stopPropagation(); bump(it, 1); };
-    qty.append(minus, el("output",null,String(it.qty ?? 0)), plus);
-    card.append(el("div","name",it.name), qty, meta);
-    card.onclick = () => openForm(it);
-    card.onkeydown = e => { if (e.key === "Enter") openForm(it); };
-    list.append(swipeable(card, it));
+  if (!rows.length){ list.append(el("div","empty","Nessun prodotto per questo filtro.")); renderListbar([], false); renderBanner(); return; }
+  // sezioni per categoria, richiudibili; con una ricerca in corso restano tutte aperte
+  const compact = viewMode === "rows", searching = !!query.trim();
+  const groups = new Map();
+  for (const it of rows){ const c = (it.cat || "").trim() || NO_CAT; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(it); }
+  const order = [...groups.keys()].sort((a, b) => a === NO_CAT ? 1 : b === NO_CAT ? -1 : a.localeCompare(b, "it"));
+  const headers = !(order.length === 1 && filter !== "Tutti");      // filtro su una categoria: niente intestazione
+  for (const c of order){
+    const its = groups.get(c), closed = headers && !searching && collapsed.has(c);
+    const sec = el("section", "group" + (closed ? " closed" : ""));
+    if (headers){
+      const h = el("button", "ghead"); h.type = "button"; h.setAttribute("aria-expanded", !closed);
+      h.innerHTML = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+      h.append(el("span", "gname", c), el("span", "gcount", String(its.length)));
+      const warn = expiring(its); if (warn){ const b = el("span", "badge", String(warn)); b.title = warn + " in scadenza"; h.append(b); }
+      h.onclick = () => {
+        if (searching) return;
+        const now = !sec.classList.toggle("closed");
+        now ? collapsed.delete(c) : collapsed.add(c);
+        h.setAttribute("aria-expanded", now); ls.set(COLLAPSED_KEY, [...collapsed]); renderListbar();
+      };
+      sec.append(h);
+    }
+    const body = el("div", "gbody" + (compact ? " compact" : ""));
+    for (const it of its) body.append(swipeable(itemCard(it, compact), it));
+    sec.append(body); list.append(sec);
   }
+  renderListbar(order, headers && !searching);
   renderBanner();
 }
 function bump(it, d){

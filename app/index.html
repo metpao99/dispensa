@@ -51,7 +51,35 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;font:500 .85rem var(--sans);padding:6px 12px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--fg)}
 .chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-.list{display:flex;flex-direction:column;gap:8px}
+.list{display:flex;flex-direction:column;gap:14px}
+/* sezioni per categoria */
+.group{display:flex;flex-direction:column;gap:8px}
+.ghead{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;color:var(--fg);padding:2px 0;font:700 .8rem var(--sans);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;text-align:left}
+.ghead .chev{width:16px;height:16px;flex:none;color:var(--muted);transform:rotate(90deg);transition:transform .3s cubic-bezier(.32,.72,0,1)}
+.group.closed .ghead .chev{transform:rotate(0)}
+.ghead .gname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ghead .gcount{color:var(--muted);font-family:var(--mono);font-weight:600}
+.ghead .badge{margin-left:auto}
+.group.closed .gbody{display:none}
+.gbody{display:flex;flex-direction:column;gap:8px}
+.gbody.compact{gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.gbody.compact .swipe,.gbody.compact .swipe-bg{border-radius:0}
+.gbody.compact .swipe + .swipe{border-top:1px solid var(--line)}
+/* vista a righe */
+.item.row{display:flex;align-items:center;gap:10px;border:0;border-radius:0;padding:6px 8px 6px 12px}
+.item.row .name{flex:1;font-size:.95rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item.row .name small{font-weight:500;color:var(--muted);font-size:.78rem}
+.item.row .qty{gap:2px}
+.item.row .qty button{width:30px;height:30px;font-size:1rem}
+.item.row .qty output{font-size:.95rem}
+.dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--line)}
+.dot.ok{background:var(--accent)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)} .dot.out{background:transparent;border:1.5px solid var(--muted)}
+/* vista: schede / righe */
+.listbar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.seg{display:inline-flex;padding:3px;border-radius:10px;background:color-mix(in srgb,var(--fg) 8%,transparent)}
+.seg button{border:0;background:none;color:var(--fg);font:600 .82rem var(--sans);padding:6px 14px;border-radius:8px;transition:background .25s,box-shadow .25s}
+.seg button[aria-pressed="true"]{background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.linkbtn{border:0;background:none;color:var(--accent);font:600 .85rem var(--sans);padding:6px 0;cursor:pointer}
 .item{display:grid;grid-template-columns:1fr auto;gap:4px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
 .item .name{font-weight:650;font-size:1.02rem;min-width:0;overflow-wrap:anywhere}
 .item .meta{grid-column:1;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:.8rem;color:var(--muted);min-width:0}
@@ -271,6 +299,13 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
   <div class="tools">
     <input id="q" type="search" placeholder="Cerca per nome, nota o codice" aria-label="Cerca">
     <div class="chips" id="chips" role="group" aria-label="Filtro"></div>
+    <div class="listbar" id="listbar" hidden>
+      <div class="seg" role="group" aria-label="Vista">
+        <button type="button" data-v="cards">Schede</button>
+        <button type="button" data-v="rows">Righe</button>
+      </div>
+      <button type="button" class="linkbtn" id="foldAll">Chiudi tutte</button>
+    </div>
   </div>
   <div class="banner" id="aiBanner" hidden><span id="aiBannerText"></span><button id="aiBannerBtn">Apri</button></div>
   <div class="banner" id="updBanner" hidden><span>È disponibile una nuova versione dell'app.</span><button id="updBannerBtn">Aggiorna</button></div>
