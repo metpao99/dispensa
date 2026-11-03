@@ -4,6 +4,19 @@ App per tenere traccia di dispensa, frigo e scadenze, usata in casa da poche per
 Gira su un NAS UGREEN (Debian, aarch64, utente senza sudo). Il `README.md` è la guida
 d'uso e d'installazione per la proprietaria; questo file è per chi modifica il codice.
 
+## Visione (dove sta andando l'app)
+La Dispensa deve diventare un **assistente in cucina**. Le tappe, in ordine:
+1. **Database dei prodotti in casa** (dove siamo): dispensa, frigo, scadenze, riconoscimento da
+   codice a barre e da foto.
+2. **Spesa:** lista e piani di spesa costruiti a partire dal database (cosa manca, cosa sta finendo,
+   cosa scade) e dalle richieste della persona, con una **chat interna** in cui si chiede
+   all'assistente e lui prepara i piani di spesa.
+3. **Preparazione:** ricette e guide passo passo che usano quello che c'è in casa.
+
+Quando si progetta qualcosa adesso, tenerne conto: i dati dei prodotti (nome, categoria, quantità,
+scadenza, codice) sono la base di spesa e ricette, quindi vanno tenuti puliti e coerenti (vedi la
+regola del codice a barre). L'AI passa sempre da `generate()` nel server.
+
 ## Struttura
 - `server.py` – server HTTP (ThreadingHTTPServer) + API JSON + file statici di `app/`.
   L'elenco delle API è nella docstring in cima al file: tienilo aggiornato.
