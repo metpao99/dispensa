@@ -45,7 +45,7 @@ d'uso e d'installazione per la proprietaria; questo file è per chi modifica il 
 3. Installazione: nell'app Menu › Aggiornamenti › "Aggiorna ora" (solo la proprietaria),
    oppure via SSH `python3 update.py`. Lo script copia il database in `backups/` (ultime 10),
    sostituisce il codice senza toccare i file protetti, scrive `VERSION` e riavvia il server
-   (solo il processo della Dispensa, non il NAS). Il server controlla GitHub da solo ogni 6 ore.
+   (solo il processo della Dispensa, non il NAS). Il server controlla GitHub da solo ogni 10 minuti (e, per la proprietaria, all'apertura dell'app se l'ultimo controllo ha più di 3 minuti): l'app mostra una finestra "Aggiorna ora / Più tardi" una volta per versione.
    - Le modifiche a `app/` si vedono anche senza riavvio; quelle ai `.py` solo dopo il riavvio.
    - Un errore in `server.py` installato spegne l'app: va corretto via SSH, quindi prova prima.
 

@@ -491,10 +491,36 @@ async function runUpdate(btns, say, before, already){
 }
 // dopo il ricaricamento: conferma
 try { if (sessionStorage.getItem("dispensa-updated")){ sessionStorage.removeItem("dispensa-updated"); setTimeout(() => toast("App aggiornata"), 400); } } catch {}
+/* Controllo automatico: all'apertura e quando l'app torna in primo piano. Se c'è una versione nuova,
+   la proprietaria vede una finestra (una volta per versione) e decide se aggiornare; il banner resta. */
+const UPD_SEEN = "dispensa-upd-seen";
+let updInfo = null, updChecked = 0;
 async function checkUpdate(){
-  try { const s = await api("GET", "/api/update"); $("updBanner").hidden = !(s.owner && s.available && !s.running); } catch {}
+  updChecked = Date.now();
+  let s; try { s = await api("GET", "/api/update"); } catch { return; }
+  const can = s.owner && s.available && !s.running;
+  $("updBanner").hidden = !can;
+  updInfo = can ? s : null;
+  if (s.owner && s.running) return runUpdate([], updSay, s.installed.sha, true);   // già in corso (es. da un altro telefono)
+  if (can && ls.get(UPD_SEEN, "") !== s.latest.sha && $("login").hidden && !document.querySelector(".sheet:not([hidden])")) showUpdSheet();
 }
-$("updBannerBtn").onclick = () => { $("menuBtn").click(); setTimeout(() => $("updBox").scrollIntoView({ behavior: "smooth", block: "center" }), 150); };
+function updSay(t, bad){ if (bad) toast(t); }
+function showUpdSheet(){
+  if (!updInfo) return;
+  const l = updInfo.latest || {};
+  const when = l.date ? new Date(l.date).toLocaleDateString("it-IT", { day: "numeric", month: "long" }) : "";
+  $("updWhat").textContent = (l.message ? `Novità: ${l.message}` : "C'è una nuova versione su GitHub.") + (when ? ` (${when})` : "") +
+    " Prima di aggiornare il NAS salva una copia del database.";
+  ls.set(UPD_SEEN, l.sha);
+  openSheet("updSheet");
+}
+$("updGo").onclick = () => { closeSheet("updSheet"); if (updInfo) runUpdate([], updSay, updInfo.installed.sha); };
+$("updLater").onclick = () => { closeSheet("updSheet"); toast("Va bene: lo trovi nel banner in alto o in Menu › Aggiornamenti"); };
+$("updSheet").onclick = e => { if (e.target.id === "updSheet") closeSheet("updSheet"); };
+$("updBannerBtn").onclick = () => updInfo ? showUpdSheet() : $("menuBtn").click();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && me && Date.now() - updChecked > 60000) checkUpdate();
+});
 
 /* ---------------- aspetto (tema) ---------------- */
 const PALETTES = {"oliva": {"label": "Oliva", "light": {"bg": "#f3f4ee", "card": "#fbfcf8", "fg": "#1f2419", "muted": "#5f6654", "line": "#d9dccf", "accent": "#3f5f22", "accent-fg": "#f6f8f0", "ok-bg": "#e3ebd5", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#15180f", "card": "#1e2217", "fg": "#e8ebe0", "muted": "#a3aa95", "line": "#323829", "accent": "#9cc06a", "accent-fg": "#16200b", "ok-bg": "#25301a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "mare": {"label": "Mare", "light": {"bg": "#f2f5f8", "card": "#fbfcfe", "fg": "#16212b", "muted": "#55636f", "line": "#d5dde5", "accent": "#1f5f8b", "accent-fg": "#f4f8fb", "ok-bg": "#dfeaf3", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#0f161d", "card": "#17212b", "fg": "#e4ebf1", "muted": "#9aabbb", "line": "#2a3744", "accent": "#7db9e8", "accent-fg": "#0b1a26", "ok-bg": "#18293a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "prugna": {"label": "Prugna", "light": {"bg": "#f6f3f6", "card": "#fdfbfd", "fg": "#241a24", "muted": "#675866", "line": "#e0d7df", "accent": "#6b3a6b", "accent-fg": "#faf5fa", "ok-bg": "#efe2ef", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#171217", "card": "#211a21", "fg": "#efe6ee", "muted": "#ad9dab", "line": "#3a2f39", "accent": "#d9a5d9", "accent-fg": "#2a102a", "ok-bg": "#33213a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "sabbia": {"label": "Sabbia", "light": {"bg": "#f6f2ea", "card": "#fcfaf6", "fg": "#2a2219", "muted": "#6a5d4c", "line": "#e2d9c9", "accent": "#7a5410", "accent-fg": "#fdf8ef", "ok-bg": "#efe5cf", "warn": "#8a5e00", "warn-bg": "#f6ebcc", "bad": "#a3361f", "bad-bg": "#f6dcd4"}, "dark": {"bg": "#18150f", "card": "#221e17", "fg": "#efe8dc", "muted": "#aea18b", "line": "#3a3428", "accent": "#e5bd6e", "accent-fg": "#2a1c04", "ok-bg": "#33291a", "warn": "#e2b04a", "warn-bg": "#3a2f12", "bad": "#ec8a72", "bad-bg": "#3d1d15"}}, "contrasto": {"label": "Alto contrasto", "light": {"bg": "#ffffff", "card": "#ffffff", "fg": "#000000", "muted": "#333333", "line": "#6b6b6b", "accent": "#0039b3", "accent-fg": "#ffffff", "ok-bg": "#dfe8ff", "warn": "#6b4200", "warn-bg": "#fff1c2", "bad": "#9a0000", "bad-bg": "#ffe0e0"}, "dark": {"bg": "#000000", "card": "#0d0d0d", "fg": "#ffffff", "muted": "#d6d6d6", "line": "#8a8a8a", "accent": "#ffd60a", "accent-fg": "#000000", "ok-bg": "#2a2400", "warn": "#ffd60a", "warn-bg": "#332b00", "bad": "#ff8a80", "bad-bg": "#3a0000"}}};

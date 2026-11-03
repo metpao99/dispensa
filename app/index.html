@@ -241,7 +241,7 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     <div class="chips" id="chips" role="group" aria-label="Filtro"></div>
   </div>
   <div class="banner" id="aiBanner" hidden><span id="aiBannerText"></span><button id="aiBannerBtn">Apri</button></div>
-  <div class="banner" id="updBanner" hidden><span>È disponibile una nuova versione dell'app.</span><button id="updBannerBtn">Vedi</button></div>
+  <div class="banner" id="updBanner" hidden><span>È disponibile una nuova versione dell'app.</span><button id="updBannerBtn">Aggiorna</button></div>
   <div class="ideas" id="ideas" hidden><span id="ideasText"></span><button type="button" id="ideasBtn">Idee ricette</button></div>
   <div class="list" id="list"></div>
 </div>
@@ -432,6 +432,18 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
 </div>
 
 <div class="toast" id="toast" hidden></div>
+
+<!-- nuova versione disponibile (solo la proprietaria) -->
+<div class="sheet" id="updSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="updTitle">
+    <h2 id="updTitle">Nuova versione disponibile</h2>
+    <p id="updWhat"></p>
+    <div class="actions">
+      <button class="btn primary" type="button" id="updGo">Aggiorna ora</button>
+      <button class="btn" type="button" id="updLater">Più tardi</button>
+    </div>
+  </div>
+</div>
 
 <!-- aggiornamento in corso -->
 <div class="updover" id="updOverlay" hidden role="alertdialog" aria-live="polite" aria-labelledby="updStep">

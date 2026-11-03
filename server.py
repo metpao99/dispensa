@@ -27,7 +27,7 @@ API
   GET    /api/product/<code> nome, marca, formato e categoria da Open Food Facts (con cache nel database)
   PUT    /api/items/<id>     crea/aggiorna un prodotto
   DELETE /api/items/<id>     elimina un prodotto
-  GET    /api/update         versione installata e ultima su GitHub (controllo automatico ogni 6 ore)
+  GET    /api/update         versione installata e ultima su GitHub (controllo ogni 10 minuti; per la proprietaria anche all'apertura)
   POST   /api/update/check   controlla subito GitHub (solo la proprietaria)
   POST   /api/update/run     avvia update.py: copia del database, aggiornamento, riavvio (solo la proprietaria)
 Tutto il resto viene servito dalla cartella ./app
@@ -392,8 +392,9 @@ def ask_ai(prompt, image_b64=None):
 
 # ---------- aggiornamenti da GitHub ----------
 UPDATE_LOG = os.path.join(BASE, "update.log")
-UPDATE_EVERY = 6 * 3600          # controllo automatico (GitHub concede 60 richieste/ora senza token)
-_upd = {"latest": None, "checked": None, "error": None, "proc": None}
+UPDATE_EVERY = 10 * 60           # controllo automatico (GitHub concede 60 richieste/ora senza token)
+UPDATE_STALE = 3 * 60            # quando la proprietaria apre l'app, ricontrolla se l'ultimo controllo è più vecchio
+_upd = {"latest": None, "checked": None, "error": None, "proc": None, "checking": False}
 _upd_lock = threading.Lock()
 
 
@@ -427,6 +428,25 @@ def check_updates():
         if latest:
             _upd["latest"] = latest
         _upd["error"], _upd["checked"] = err, int(time.time() * 1000)
+
+
+def check_if_stale(wait=5):
+    """Ricontrolla GitHub se l'ultimo controllo è vecchio; aspetta al massimo `wait` secondi."""
+    with _upd_lock:
+        fresh = _upd["checked"] and time.time() * 1000 - _upd["checked"] < UPDATE_STALE * 1000
+        if fresh or _upd["checking"]:
+            return
+        _upd["checking"] = True
+
+    def run():
+        try:
+            check_updates()
+        finally:
+            with _upd_lock:
+                _upd["checking"] = False
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(wait)
 
 
 def update_loop():
@@ -654,6 +674,8 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 oid = owner_id()
                 owner = db().execute("SELECT name FROM users WHERE id = ?", (oid,)).fetchone()
+            if u["id"] == oid:
+                check_if_stale()
             return self.send_json(200, dict(update_status(), owner=u["id"] == oid, ownerName=owner["name"] if owner else ""))
         if path == "/api/push/key":
             return self.send_json(200, {"key": VAPID[1]})
