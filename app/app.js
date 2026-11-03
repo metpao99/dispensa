@@ -319,6 +319,8 @@ async function recognizeFile(f){
                                 "Il NAS non ha risposto in tempo: riprova.");
     if (run !== recRun) return;                         // nel frattempo è partita un'altra foto
     if (!formOpenNew()) openForm(null, "", null, "", true, true);   // la scheda è stata chiusa: la riapro
+    const known = byCode(r.codice || $("f-code").value);
+    if (known){ openRestock(known, r.scadenza || $("f-exp").value, true); return; }
     if (!r.nome){ say("err", "Non riconosco il prodotto: inquadra bene la confezione, con buona luce."); return; }
     const filled = [];
     const put = (id, v, label) => { if (v && !$(id).value.trim()){ $(id).value = v; filled.push(label); } };
@@ -328,7 +330,7 @@ async function recognizeFile(f){
     put("f-code", r.codice, "codice");
     if (r.pezzi > 1 && $("f-qty").value === "1"){ $("f-qty").value = r.pezzi; filled.push("quantità"); }
     if (document.activeElement && $("sheet").contains(document.activeElement)) document.activeElement.blur();
-    say("", dupWarning($("f-code").value.trim()) + `Riconosciuto: “${r.nome}”. ` +
+    say("", `Riconosciuto: “${r.nome}”. ` +
       (filled.length ? `Ho compilato ${filled.join(", ")}: controlla che sia tutto giusto.` : "I campi erano già compilati, non ho cambiato nulla."));
     $("sheet").querySelector(".panel").scrollTop = 0;
   } catch (err) {
@@ -965,6 +967,13 @@ function saveForm(){
     cat: $("f-cat").value.trim(), note: $("f-note").value.trim(), updated: Date.now()
   };
   if (!it.name) return;
+  const same = byCode(it.code, editing && editing.id);
+  if (same && editing){ toast(`Il codice ${it.code} è già di “${same.name}”: un codice = un solo prodotto`); $("f-code").focus(); return; }
+  if (same){        // codice scritto a mano che esiste già: aggiungo le confezioni a quel prodotto
+    const n = (Number(same.qty) || 0) + it.qty;
+    upsert({ ...same, qty: n, exp: it.exp || same.exp, updated: Date.now() }); closeForm();
+    toast(`Aggiunto a “${same.name}”: ora ${n}`); return;
+  }
   const moved = editing && spaceOf(editing) !== it.space;
   upsert(it); closeForm();
   toast(moved ? "Spostato in " + (spaces.find(s => s.id === it.space) || {}).name : "Salvato");
@@ -980,33 +989,41 @@ $("q").oninput = e => { query = e.target.value; render(); };
 /* codice letto dal pulsante accanto a "Barcode" nella scheda: va nella scheda già aperta */
 let scanIntoForm = false;
 const formOpenNew = () => !$("sheet").hidden && !$("sheet").classList.contains("closing") && !editing;
-/* avviso se in questo ambiente c'è già un prodotto con lo stesso codice */
-function dupWarning(code){
-  const sid = curSpace().id, d = code && items.find(x => x.code === code && spaceOf(x) === sid);
-  return d ? `Attenzione: in ${curSpace().name} hai già “${d.name}” con questo codice (q.tà ${d.qty ?? 0}). ` : "";
+/* ---- il codice a barre identifica il prodotto, in tutti gli ambienti: un codice = una sola voce ----
+   Se il codice c'è già, non si crea un doppione: si riapre quella voce come "nuova confezione"
+   (quantità +1, scadenza della nuova confezione) e si tengono nome, categoria, note e ambiente. */
+function byCode(code, exceptId){
+  code = String(code || "").trim(); if (!code) return null;
+  const all = items.filter(x => x.code === code && x.id !== exceptId);
+  return all.find(x => spaceOf(x) === curSpace().id) || all[0] || null;
+}
+const spaceName = it => (spaces.find(s => s.id === spaceOf(it)) || {}).name || "un altro ambiente";
+function openRestock(found, exp, instant){
+  openForm(found, "", null, "", true, instant);
+  const n = (Number(found.qty) || 0) + 1;
+  $("f-qty").value = n;
+  if (exp) $("f-exp").value = exp;
+  $("sheetTitle").textContent = "Nuova confezione";
+  const where = spaceOf(found) !== curSpace().id ? ` in ${spaceName(found)}` : "";
+  $("sheetCode").textContent = `Hai già “${found.name}”${where}: quantità portata a ${n}. ` +
+    (exp ? `Scadenza della nuova confezione: ${fmtDate(exp)}, controllala.` : "Aggiorna la scadenza con quella della nuova confezione.");
 }
 $("scanCode").onclick = () => { scanIntoForm = true; startScan(); };
 function handleCode(code){
   code = String(code).trim(); if (!code) return;
-  if (scanIntoForm && formOpenNew()){
-    scanIntoForm = false;
+  const intoForm = scanIntoForm && formOpenNew(); scanIntoForm = false;
+  const found = byCode(code);
+  if (found){ openRestock(found, intoForm ? $("f-exp").value : ""); return; }
+  if (intoForm){
     $("f-code").value = code;
-    $("sheetCode").textContent = dupWarning(code) + "Codice letto: " + code + ". Cerco il nome…";
-    lookupProduct(code, dupWarning(code));
+    $("sheetCode").textContent = "Codice letto: " + code + ". Cerco il nome…";
+    lookupProduct(code);
     return;
   }
-  scanIntoForm = false;
-  const sid = curSpace().id;
-  const found = items.find(x => x.code === code && spaceOf(x) === sid);
-  if (found){ openForm(found); toast("Riconosciuto: " + found.name); return; }
-  const elsewhere = items.find(x => x.code === code);
-  if (elsewhere){
-    const where = (spaces.find(s => s.id === spaceOf(elsewhere)) || {}).name || "un altro ambiente";
-    openForm(null, code, elsewhere, `Già presente in ${where} come “${elsewhere.name}”: lo aggiungo anche qui.`);
-  } else { openForm(null, code, null, "Codice letto: " + code + ". Cerco il nome…"); lookupProduct(code); }
+  openForm(null, code, null, "Codice letto: " + code + ". Cerco il nome…"); lookupProduct(code);
 }
 /* Nome, formato e categoria da Open Food Facts (il NAS fa da tramite e tiene una cache). */
-async function lookupProduct(code, prefix = ""){
+async function lookupProduct(code){
   const still = () => formOpenNew() && $("f-code").value.trim() === code;
   let r = null;
   try { r = await api("GET", "/api/product/" + encodeURIComponent(code)); } catch {}
@@ -1015,9 +1032,9 @@ async function lookupProduct(code, prefix = ""){
   if (r && r.found){
     if (!$("f-name").value.trim()) $("f-name").value = r.name;
     if (!$("f-cat").value.trim() && r.cat) $("f-cat").value = sameCat(r.cat);
-    note.textContent = prefix + "Trovato su Open Food Facts: controlla il nome e aggiungi la scadenza.";
+    note.textContent = "Trovato su Open Food Facts: controlla il nome e aggiungi la scadenza.";
   } else {
-    note.textContent = prefix + "Codice letto: " + code + ". " + (r ? "Prodotto non presente su Open Food Facts" : "Ricerca del nome non riuscita") +
+    note.textContent = "Codice letto: " + code + ". " + (r ? "Prodotto non presente su Open Food Facts" : "Ricerca del nome non riuscita") +
       (aiOn ? ": prova “Riconosci dalla foto”." : ": scrivi il nome.");
   }
 }

@@ -27,6 +27,11 @@ d'uso e d'installazione per la proprietaria; questo file è per chi modifica il 
 - Le persone non hanno password: la **proprietaria** è la prima persona creata (`owner_id()`).
   Impostazioni AI e aggiornamenti sono riservati a lei, sia nel server (403) sia nell'interfaccia.
 - Gli accessi al database passano da `db()` sotto `_lock`.
+- **Il codice a barre identifica il prodotto, in tutti gli ambienti: un codice = una sola voce.**
+  Se un codice (scansionato, letto dalla foto o scritto a mano) esiste già, non si crea un doppione:
+  si riapre quella voce come "nuova confezione" (quantità +1, scadenza della nuova confezione),
+  tenendo nome, categoria, note e ambiente. Funzioni: `byCode()`, `openRestock()`, controllo in `saveForm()`.
+  Qualsiasi nuovo modo di aggiungere prodotti deve passare da questa regola.
 - Pannelli (`.sheet`): aprili e chiudili con `openSheet(id)` / `closeSheet(id)`, non con `.hidden`,
   così hanno l'animazione e il gesto "tira giù per chiudere". Se la chiusura deve fare altro, registrala
   in `sheetClosers[id]` (es. `closeForm` per la scheda prodotto).
