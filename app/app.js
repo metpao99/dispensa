@@ -2,7 +2,7 @@
 "use strict";
 /* Versione dell'app: si aumenta a ogni push su main (vedi CLAUDE.md).
    Piccole modifiche e correzioni: +0.1 (0.1 → 0.2). Miglioramenti grandi: unità (0.9 → 1.0). */
-const APP_VERSION = "0.5";
+const APP_VERSION = "0.6";
 const $ = id => document.getElementById(id);
 $("appVer").textContent = "Dispensa " + APP_VERSION;
 const SPACES_KEY = "dispensa-spaces", CUR_KEY = "dispensa-current-space";
@@ -669,7 +669,9 @@ function setShopping(list){
 async function loadShopping(){
   try {
     const r = await api("GET", "/api/shopping");
-    if (JSON.stringify(r.items) !== JSON.stringify(shopping)) setShopping(r.items);   // niente ridisegno se non è cambiato nulla
+    const changed = JSON.stringify([r.items, r.stores, r.where]) !== JSON.stringify([shopping, shopStores, shopWhere]);
+    setStores(r.stores || [], r.where || {});
+    if (changed) setShopping(r.items);          // niente ridisegno se non è cambiato nulla
   } catch {}
 }
 function putEntry(e){
@@ -748,7 +750,7 @@ async function dropWithUndo(e){
     } catch (err) { toast(shopErr(err)); }
   });
 }
-function shopRow(e){
+function shopRow(e, est){
   const row = el("div", "item srow" + (e.done ? " done" : ""));
   const t = el("button", "stick"); t.type = "button"; t.innerHTML = TICK_SVG;
   t.setAttribute("aria-label", e.done ? `Rimetti “${e.name}” da comprare` : `Comprato “${e.name}”: torna in dispensa`);
@@ -761,6 +763,7 @@ function shopRow(e){
   const sp = e.item && spaces.find(s => s.id === e.space);
   const bits = [e.done && e.qty > 1 ? "×" + e.qty : "", e.cat, sp ? "da " + sp.name : "", e.addedBy ? "messo da " + e.addedBy : ""].filter(Boolean);
   if (bits.length) sn.append(el("small", null, bits.join(" · ")));
+  if (shopStore && !e.done) sn.append(whereInfo(e, est));
   row.append(t, sn);
   if (!e.done){
     const qty = el("div", "qty");
@@ -774,6 +777,7 @@ function shopRow(e){
   return swipeable(row, { left: () => dropWithUndo(e), leftLabel: "Togli" });
 }
 function renderShop(){
+  renderStoreChips();
   const list = $("shopList"); list.textContent = "";
   const todo = toBuy(), done = shopping.filter(x => x.done);
   $("shopInfo").textContent = shopping.length ? `${todo.length} da comprare` + (done.length ? ` · ${done.length} comprati` : "") : "";
@@ -781,17 +785,26 @@ function renderShop(){
   if (!shopping.length){
     const e = el("div", "empty"); e.append(el("strong", null, "La lista è vuota"),
       "Scrivi qui sopra cosa comprare, oppure nella Dispensa scorri un prodotto verso destra.");
-    list.append(e); return;
+    list.append(e); $("storeStatus").hidden = true; return;
   }
   if (!todo.length) list.append(el("div", "empty", "Tutto comprato!"));
-  // da comprare, per categoria (in negozio si trova prima)
-  const groups = new Map();
-  for (const e of todo){ const c = (e.cat || "").trim() || NO_CAT; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(e); }
-  const order = [...groups.keys()].sort((a, b) => a === NO_CAT ? 1 : b === NO_CAT ? -1 : a.localeCompare(b, "it"));
+  const est = shopStore ? (shopWhere[shopStore] || {}) : {};
+  renderWhereStatus(todo, est);
+  // da comprare: con un negozio scelto "trovi qui / non trovi qui", altrimenti per categoria
+  const groups = new Map(), byName = (a, b) => a.name.localeCompare(b.name, "it");
+  let order;
+  if (shopStore){
+    const yes = `Di solito lo trovi da ${shopStore}`, no = `Di solito non lo trovi da ${shopStore}`, unk = "Senza stima";
+    for (const e of todo){ const w = est[e.id], c = !w ? unk : w.trovi ? yes : no; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(e); }
+    order = [yes, no, unk].filter(c => groups.has(c));
+  } else {
+    for (const e of todo){ const c = (e.cat || "").trim() || NO_CAT; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(e); }
+    order = [...groups.keys()].sort((a, b) => a === NO_CAT ? 1 : b === NO_CAT ? -1 : a.localeCompare(b, "it"));
+  }
   for (const c of order){
-    if (order.length > 1) list.append(el("div", "pickgroup", c));
+    if (order.length > 1 || shopStore) list.append(el("div", "pickgroup", c));
     const body = el("div", "gbody");
-    groups.get(c).sort((a, b) => a.name.localeCompare(b.name, "it")).forEach(e => body.append(shopRow(e)));
+    groups.get(c).sort(byName).forEach(e => body.append(shopRow(e, est[e.id])));
     list.append(body);
   }
   if (done.length){
@@ -820,6 +833,130 @@ $("shopClear").onclick = async () => {
   try { await api("DELETE", "/api/shopping"); setShopping(toBuy()); toast("Comprati tolti dalla lista"); }
   catch (e) { toast(shopErr(e)); }
 };
+
+/* ---------------- dove si compra (spesa, fase 2) ----------------
+   Negozi preferiti condivisi da tutta la casa (sul NAS); il negozio scelto vale per questo telefono.
+   Per ogni voce l'AI stima se DI NORMA si trova in quel negozio (con alternativa): il NAS tiene le stime in cache.
+   È una stima sull'assortimento abituale, non una verifica dello scaffale: va detto chiaro nell'interfaccia. */
+const STORE_KEY = "dispensa-shop-store", STORES_KEY = "dispensa-shop-stores", WHERE_KEY = "dispensa-shop-where";
+let shopStores = ls.get(STORES_KEY, []), shopWhere = ls.get(WHERE_KEY, {}), shopStore = ls.get(STORE_KEY, "");
+let whereBusy = "", whereMsg = null;
+const whereTried = new Set();       // stima automatica: una volta sola per negozio + voci (niente richieste a raffica)
+const STORE_PRESETS = ["Esselunga", "Coop", "Conad", "Lidl", "Carrefour", "Eurospin", "Aldi", "Penny", "MD", "Pam", "Despar", "Bennet"];
+const STORE_SEARCH = {             // ricerca sul sito del negozio (solo un link: nessuna lettura dei siti)
+  esselunga: q => "https://spesaonline.esselunga.it/commerce/nav/supermercato/store/ricerca/" + encodeURIComponent(q),
+  coop: q => "https://www.coopshop.it/search?q=" + encodeURIComponent(q),
+  conad: q => "https://spesaonline.conad.it/search?q=" + encodeURIComponent(q),
+  lidl: q => "https://www.lidl.it/q/search?q=" + encodeURIComponent(q),
+  carrefour: q => "https://www.carrefour.it/search?q=" + encodeURIComponent(q)
+};
+const STORE_SITE = { eurospin: "eurospin.it", aldi: "aldi.it", penny: "penny.it", md: "mdspa.it", pam: "pampanorama.it", despar: "despar.it", bennet: "bennet.com" };
+function storeSearchUrl(store, q){
+  const k = store.toLowerCase();
+  if (STORE_SEARCH[k]) return STORE_SEARCH[k](q);
+  return "https://www.google.com/search?q=" + encodeURIComponent(STORE_SITE[k] ? `${q} site:${STORE_SITE[k]}` : `${q} ${store}`);
+}
+function setStores(stores, where){
+  shopStores = stores; ls.set(STORES_KEY, stores);
+  if (where) { shopWhere = where; ls.set(WHERE_KEY, where); }
+  if (shopStore && !shopStores.includes(shopStore)){ shopStore = ""; ls.set(STORE_KEY, ""); }
+}
+function renderStoreChips(){
+  const box = $("storeChips"); box.textContent = "";
+  if (!shopStores.length){
+    const b = el("button", "chip", "+ Scegli i negozi dove fai la spesa"); b.type = "button"; b.onclick = openStoresSheet;
+    box.append(b); return;
+  }
+  for (const st of ["", ...shopStores]){
+    const b = el("button", "chip", st || "Tutti"); b.type = "button"; b.setAttribute("aria-pressed", st === shopStore);
+    b.onclick = () => { shopStore = st; ls.set(STORE_KEY, st); whereMsg = null; renderShop(); };
+    box.append(b);
+  }
+  const ed = el("button", "chip ghost", "Negozi…"); ed.type = "button"; ed.onclick = openStoresSheet;
+  box.append(ed);
+}
+/* righe della stima sotto il nome della voce */
+function whereInfo(e, est){
+  const box = el("div", "where");
+  if (est){
+    const line = est.trovi
+      ? el("span", "yes", est.nota || "Di solito c'è")
+      : el("span", "no", (est.alternativa ? "Qui prova: " + est.alternativa : "Di solito qui non c'è") + (est.altrove ? ` · di solito da ${est.altrove}` : ""));
+    box.append(line);
+    if (!est.certo) box.append(el("span", "unsure", " · stima incerta"));
+  }
+  const a = el("a", "slink", "Cerca su " + shopStore);
+  a.href = storeSearchUrl(shopStore, e.name); a.target = "_blank"; a.rel = "noopener";
+  a.addEventListener("click", ev => ev.stopPropagation());
+  box.append(a);
+  return box;
+}
+async function estimate(store, fresh){
+  if (whereBusy) return;
+  whereBusy = store; whereMsg = null; renderShop();
+  try {
+    const r = await api("POST", "/api/shopping/where", { store, fresh: !!fresh });
+    shopWhere = { ...shopWhere, [store]: r.where }; ls.set(WHERE_KEY, shopWhere);
+  } catch (e) {
+    whereMsg = { store, text: e instanceof AuthError ? "Scegli prima chi sei." : (e.message || "Stima non riuscita: riprova") };
+  } finally { whereBusy = ""; renderShop(); }
+}
+function renderWhereStatus(todo, est){
+  const st = $("storeStatus"); st.textContent = ""; st.className = "storestatus";
+  if (!shopStore) { st.hidden = true; return; }
+  st.hidden = false;
+  st.append(el("p", "storenote", `Stima dell'assistente su cosa vende di solito ${shopStore}: non è una verifica dello scaffale né della disponibilità di oggi.`));
+  const missing = todo.filter(e => !est[e.id]);
+  if (whereBusy === shopStore){ st.append(el("div", "thinking", `Chiedo all'assistente cosa trovi di solito da ${shopStore}…`)); return; }
+  if (whereMsg && whereMsg.store === shopStore) st.append(el("p", "status err", whereMsg.text));
+  if (!aiOn){ st.append(el("p", "status", "Per la stima serve l'AI (Menu › Intelligenza artificiale): intanto “Cerca su” apre il sito del negozio.")); return; }
+  if (!todo.length) return;
+  const sig = shopStore + "|" + missing.map(e => e.id).join(",");
+  if (missing.length && !whereTried.has(sig)){ whereTried.add(sig); setTimeout(() => estimate(shopStore), 0); return; }
+  const b = el("button", "linkbtn", missing.length ? `Stima le ${missing.length === 1 ? "voce mancante" : missing.length + " voci mancanti"}` : "Rifai la stima");
+  b.type = "button"; b.onclick = () => estimate(shopStore, !missing.length);
+  st.append(b);
+}
+
+/* negozi preferiti (pannello) */
+let storesDraft = [];
+function openStoresSheet(){ storesDraft = [...shopStores]; renderStoresList(); $("storeNew").value = ""; openSheet("storesSheet"); }
+function renderStoresList(){
+  const box = $("storesList"); box.textContent = "";
+  const all = [...STORE_PRESETS];
+  for (const s of [...shopStores, ...storesDraft]) if (!all.some(x => x.toLowerCase() === s.toLowerCase())) all.push(s);
+  for (const st of all){
+    const on = storesDraft.includes(st);
+    const lab = el("label", "pick" + (on ? " on" : ""));
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = on;
+    const tick = el("span", "tick"); tick.innerHTML = TICK_SVG;
+    const pn = el("span", "pn"); pn.append(el("b", null, st));
+    if (STORE_SEARCH[st.toLowerCase()]) pn.append(el("small", null, "con ricerca sul sito"));
+    cb.onchange = () => {
+      if (cb.checked && storesDraft.length >= 8){ cb.checked = false; toast("Al massimo 8 negozi"); return; }
+      storesDraft = cb.checked ? [...storesDraft, st] : storesDraft.filter(x => x !== st);
+      lab.classList.toggle("on", cb.checked);
+    };
+    lab.append(cb, tick, pn); box.append(lab);
+  }
+}
+$("storeAddForm").onsubmit = e => {
+  e.preventDefault();
+  const n = $("storeNew").value.trim().replace(/\s+/g, " ").slice(0, 40); if (!n) return;
+  const known = [...STORE_PRESETS, ...storesDraft].find(x => x.toLowerCase() === n.toLowerCase());
+  if (!known && storesDraft.length >= 8){ toast("Al massimo 8 negozi"); return; }
+  if (!storesDraft.includes(known || n)) storesDraft.push(known || n);
+  $("storeNew").value = ""; renderStoresList();
+};
+$("storesSave").onclick = async () => {
+  try {
+    const r = await api("POST", "/api/shop-stores", { stores: storesDraft });
+    setStores(r.stores); closeSheet("storesSheet"); renderShop(); loadShopping();
+    toast(r.stores.length ? "Negozi salvati per tutta la casa" : "Nessun negozio scelto");
+  } catch (e) { toast(shopErr(e)); }
+};
+$("storesCancel").onclick = () => closeSheet("storesSheet");
+$("storesSheet").onclick = e => { if (e.target.id === "storesSheet") closeSheet("storesSheet"); };
 
 /* ---------------- avvisi di scadenza (notifiche) ---------------- */
 for (let h = 6; h <= 22; h++){ const o = el("option", null, String(h).padStart(2, "0") + ":00"); o.value = h; $("n-hour").append(o); }

@@ -20,6 +20,10 @@ La scansione aggiunge il prodotto all'ambiente aperto; per spostarlo, cambia "Am
 - nella scheda Spesa, scrivi il nome e tocca Aggiungi. Lo stesso prodotto (stesso codice a barre) non si ripete: aumenta la quantità.
 Quando l'hai comprato tocca il cerchio: si apre la scheda del prodotto come "nuova confezione", metti la scadenza e Salva.
 "Togli i comprati" pulisce la lista. Scorrere a sinistra una voce la toglie.
+**Dove comprare:** "Scegli i negozi" (Esselunga, Coop, Lidl… valgono per tutta la casa). Toccando un negozio la lista
+si divide in "di solito lo trovi qui" / "di solito non lo trovi qui", con un'alternativa: è una **stima dell'AI**
+sull'assortimento abituale della catena, non una verifica dello scaffale (serve l'AI collegata; le stime restano in
+memoria sul NAS per 90 giorni). "Cerca su <negozio>" apre la ricerca del prodotto sul sito del negozio (o su Google).
 
 ## Intelligenza artificiale: collegarla dall'app (Menu › Intelligenza artificiale)
 Solo la prima persona creata (la proprietaria) vede e cambia queste impostazioni.

@@ -31,7 +31,12 @@ API
   POST   /api/items/<id>/to-shopping  sposta UNA confezione nella lista della spesa (atomico): aggiunge in lista
                              (stesso codice o stesso nome = quantità +1) e poi toglie 1 dalla dispensa
                              (quantità 1 o 0: il prodotto viene eliminato). -> {"entry", "created", "item"|null}
-  GET    /api/shopping       lista della spesa condivisa: {"items": [...]}
+  GET    /api/shopping       lista della spesa condivisa: {"items": [...], "stores": [negozi preferiti],
+                             "where": {negozio: {id voce: stima}}} (stime già in cache)
+  POST   /api/shop-stores    {"stores": ["Esselunga", "Lidl", …]} negozi preferiti della casa (massimo 8)
+  POST   /api/shopping/where {"store": "...", "fresh": false} stima AI (generate) di cosa si trova di solito in quel
+                             negozio, per le voci non ancora stimate (con "fresh" rifà tutte); in cache per 90 giorni.
+                             È una stima, non una verifica dello scaffale. -> {"where": {id voce: stima}}
   POST   /api/shopping       {"name", "cat", "code", "qty", "space"} aggiunge una voce (stesso codice = quantità +qty)
   PATCH  /api/shopping/<id>  {"qty"?, "done"?, "name"?, "cat"?} cambia quantità, "comprato", nome, categoria
   DELETE /api/shopping/<id>  toglie una voce; DELETE /api/shopping toglie tutte quelle spuntate (comprate)
@@ -600,6 +605,9 @@ def db():
                 done INTEGER NOT NULL DEFAULT 0, space TEXT NOT NULL DEFAULT '',
                 item_id TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL,
                 updated INTEGER NOT NULL, added_by TEXT);
+            CREATE TABLE IF NOT EXISTS shop_ai(
+                store TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL, created INTEGER NOT NULL,
+                PRIMARY KEY(store, key));
         """)
         if not _db.execute("SELECT 1 FROM spaces").fetchone():
             _db.executemany("INSERT INTO spaces VALUES (?,?,?)", [("dispensa", "Dispensa", 0), ("frigo", "Frigo", 1)])
@@ -690,6 +698,76 @@ def shop_add(name, cat="", code="", qty=1, space="", item_id="", user=""):
     db().execute("INSERT INTO shopping(id, name, cat, code, qty, done, space, item_id, created, updated, added_by) "
                  "VALUES (?,?,?,?,?,0,?,?,?,?,?)", (sid, name, cat, code, qty, space, item_id, now, now, user))
     return shop_out(db().execute("SELECT * FROM shopping WHERE id = ?", (sid,)).fetchone()), True
+
+
+# ---------- dove si compra (fase 2): stima dell'AI per negozio, in cache ----------
+MAX_STORES = 8
+WHERE_TTL = 90 * 24 * 3600
+WHERE_BATCH = 40
+
+
+def shop_stores():
+    try:
+        v = json.loads(meta_get("shop_stores") or "[]")
+        return [str(x) for x in v][:MAX_STORES] if isinstance(v, list) else []
+    except ValueError:
+        return []
+
+
+def where_key(name):
+    return " ".join(str(name or "").casefold().split())
+
+
+def where_cached(store, entries):
+    """{id voce: stima} per le voci con una stima ancora valida."""
+    limit = int(time.time()) - WHERE_TTL
+    out = {}
+    for e in entries:
+        r = db().execute("SELECT data FROM shop_ai WHERE store = ? AND key = ? AND created > ?",
+                         (store.casefold(), where_key(e["name"]), limit)).fetchone()
+        if r:
+            out[e["id"]] = json.loads(r["data"])
+    return out
+
+
+def where_all(entries):
+    todo = [e for e in entries if not e["done"]]
+    return {st: where_cached(st, todo) for st in shop_stores()}
+
+
+def where_prompt(store, names, others):
+    lines = "\n".join(f"{i}. {n}" for i, n in enumerate(names, 1))
+    return f"""Conosci bene i supermercati italiani. Negozio: {store}.
+Per ogni prodotto della lista dimmi se DI NORMA si trova in questo negozio, cioè se fa parte dell'assortimento abituale della catena in Italia (non la disponibilità di oggi in un punto vendita: quella non puoi saperla).
+Altri negozi che usiamo: {", ".join(others) or "nessuno"}.
+
+Prodotti (come li scriviamo noi):
+{lines}
+
+Regole:
+- "trovi": true se di solito c'è (anche solo la versione a marchio del negozio va bene: dillo in "nota"); false se di solito non c'è (per esempio una marca che la catena non vende o un prodotto di nicchia).
+- Se "trovi" è false: in "alternativa" un prodotto simile che di norma c'è in {store} (per esempio quello a marchio del negozio) e in "altrove" il nome di uno degli altri negozi che usiamo dove di norma si trova ("" se nessuno).
+- "nota": al massimo una frase breve, facoltativa (marca del negozio, reparto…).
+- "certo": false se non sei sicuro.
+
+Rispondi SOLO con JSON valido, senza testo prima o dopo:
+{{"prodotti":[{{"n":1,"trovi":true,"certo":true,"nota":"","alternativa":"","altrove":""}}]}}"""
+
+
+def parse_where(text, n):
+    a, b = text.find("{"), text.rfind("}")
+    data = json.loads(text[a:b + 1])
+    out = {}
+    for p in data.get("prodotti", []):
+        try:
+            i = int(p.get("n"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if 1 <= i <= n:
+            out[i] = {"trovi": bool(p.get("trovi")), "certo": p.get("certo") is not False,
+                      "nota": str(p.get("nota") or "")[:160], "alternativa": str(p.get("alternativa") or "")[:120],
+                      "altrove": str(p.get("altrove") or "")[:40]}
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -829,7 +907,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self.need_user():
                 return
             with _lock:
-                return self.send_json(200, {"items": shop_list()})
+                lst = shop_list()
+                return self.send_json(200, {"items": lst, "stores": shop_stores(), "where": where_all(lst)})
         if path.startswith("/api/"):
             return self.send_json(404, {"error": "Non trovato"})
         return self.serve_static(path)
@@ -1043,6 +1122,60 @@ class Handler(BaseHTTPRequestHandler):
                         db().rollback()
                         raise
                 return self.send_json(200, {"entry": entry, "created": created})
+            if path == "/api/shop-stores":
+                if not self.need_user():
+                    return
+                raw = self.read_json().get("stores")
+                if not isinstance(raw, list):
+                    raise ValueError("Elenco dei negozi non valido")
+                stores = []
+                for x in raw:
+                    n = clean_name(x)
+                    if n.casefold() not in (s.casefold() for s in stores):
+                        stores.append(n)
+                if len(stores) > MAX_STORES:
+                    raise ValueError(f"Al massimo {MAX_STORES} negozi")
+                with _lock:
+                    meta_set("shop_stores", json.dumps(stores, ensure_ascii=False))
+                    db().commit()
+                return self.send_json(200, {"stores": stores})
+            if path == "/api/shopping/where":
+                u = self.need_user()
+                if not u:
+                    return
+                if not engine_for(u):
+                    return self.send_json(400, {"error": "Per la stima serve l'AI: collegala in Menu › Intelligenza artificiale"})
+                b = self.read_json()
+                store = " ".join(str(b.get("store") or "").split())[:40]
+                with _lock:
+                    stores = shop_stores()
+                    if store.casefold() not in (s.casefold() for s in stores):
+                        return self.send_json(400, {"error": "Scegli prima il negozio tra i preferiti"})
+                    todo = [e for e in shop_list() if not e["done"]]
+                    have = {} if b.get("fresh") else where_cached(store, todo)
+                names = []
+                for e in todo:                     # un nome solo una volta, anche se ripetuto
+                    if e["id"] not in have and where_key(e["name"]) not in (where_key(n) for n in names):
+                        names.append(e["name"])
+                names = names[:WHERE_BATCH]
+                if names:
+                    others = [s for s in stores if s.casefold() != store.casefold()]
+                    try:
+                        got = parse_where(generate(u, where_prompt(store, names, others)), len(names))
+                    except AIError as e:
+                        return self.send_json(502, {"error": str(e)})
+                    except (ValueError, KeyError, AttributeError):
+                        return self.send_json(502, {"error": "Risposta AI non leggibile: riprova"})
+                    now = int(time.time())
+                    with _lock:
+                        for i, n in enumerate(names, 1):
+                            if i in got:
+                                db().execute("INSERT OR REPLACE INTO shop_ai VALUES (?,?,?,?)",
+                                             (store.casefold(), where_key(n), json.dumps(got[i], ensure_ascii=False), now))
+                        db().commit()
+                with _lock:
+                    todo = [e for e in shop_list() if not e["done"]]
+                    return self.send_json(200, {"where": where_cached(store, todo)})
             mt = re.match(r"^/api/items/([^/]+)/to-shopping$", path)
             if mt:
                 u = self.need_user()

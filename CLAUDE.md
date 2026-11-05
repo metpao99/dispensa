@@ -17,7 +17,7 @@ Quando si progetta qualcosa adesso, tenerne conto: i dati dei prodotti (nome, ca
 scadenza, codice) sono la base di spesa e ricette, quindi vanno tenuti puliti e coerenti (vedi la
 regola del codice a barre). L'AI passa sempre da `generate()` nel server.
 
-## Stato del lavoro e prossimi passi (aggiornato al 5 novembre 2026, v0.5)
+## Stato del lavoro e prossimi passi (aggiornato al 5 novembre 2026, v0.6)
 Da qui si riparte: aggiornare questa sezione alla fine di ogni sessione di lavoro.
 
 **Fatto finora** (dettagli in `git log`):
@@ -40,18 +40,24 @@ Da qui si riparte: aggiornare questa sezione alla fine di ogni sessione di lavor
   (`POST /api/items/<id>/to-shopping`, atomico); a sinistra continua a eliminare. Aggiunta a mano; stesso codice
   (o, senza codice, stesso nome) = quantità +1. Spuntando "comprato" si apre la scheda come nuova confezione
   (`buyEntry()` → `openRestock(…, n)` o scheda nuova precompilata); al "Salva" la voce si spunta (`pendingBuy`).
+- **Dove si compra (v0.6):** negozi preferiti della casa (`meta` › `shop_stores`, `POST /api/shop-stores`), il negozio
+  scelto vale per il telefono. `POST /api/shopping/where` chiede a `generate()` in un solo colpo (max 40 nomi) se ogni
+  voce di norma c'è in quel negozio, con alternativa e "altrove"; cache `shop_ai` (negozio + nome, 90 giorni).
+  Lista divisa "trovi qui / non trovi qui / senza stima", avviso che è una stima. "Cerca su <negozio>": link di ricerca
+  (`STORE_SEARCH` per Esselunga, Coop, Conad, Lidl, Carrefour; per gli altri Google con `site:`). Niente scraping.
 
 **Da verificare sul telefono** (corretti senza poterli riprodurre sul NAS):
 - v0.5 (sul NAS non c'è un browser): scorrimento a destra/sinistra nelle due viste (schede e righe), lente della
   barra con quattro schede, badge, giro completo spesa → comprato → nuova confezione;
+- v0.6: che i link "Cerca su" aprano davvero la ricerca sui siti (provati solo con curl: rispondono, ma Carrefour
+  blocca i programmi e non si è potuto verificare); stima AI provata sul NAS con l'abbonamento (circa 10 s);
 - nel Menu la barra in basso scorreva con la pagina (v0.1: niente rimbalzo + overflow-x clip):
   la proprietaria non ha ancora confermato che sia risolto;
 - schermo che restava congelato dopo la foto dal pulsante rotondo (v0.x, `whenVisible` + `repaint`):
   confermato che ora la scheda si apre e si compila.
 
 **Idee già discusse, non ancora fatte** (in ordine di priorità proposto):
-0. **Spesa, fase 2 (v0.6):** negozi preferiti, stima AI "trovi qui / non trovi qui" con alternativa (in cache),
-   pulsante "Cerca su <negozio>".
+0. **Spesa, prossimi passi:** proporre in lista i prodotti finiti o in scadenza; chat interna per i piani di spesa.
 1. Foto dello **scontrino**: l'AI legge la spesa e propone tutti i prodotti da aggiungere in un colpo
    (deve rispettare la regola del codice a barre e quella della nuova confezione).
 2. **Panoramica** in cima alla lista: riquadri "In scadenza / Finiti / Totale / per ambiente" che

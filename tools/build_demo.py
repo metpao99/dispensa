@@ -129,9 +129,54 @@ async function api(method, path, body, blob){
     db.shopping[id] = { name, cat: String(b.cat || ""), code, qty, done: false, space: String(b.space || ""), item: String(b.item || ""), created: now, updated: now, addedBy: user };
     return [shopOut(id, db.shopping[id]), true];
   };
+  // dove si compra: negozi preferiti e stime in cache (come where_cached di server.py)
+  db.stores = db.stores || []; db.where = db.where || {};
+  const wkey = n => String(n || "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+  const shopAll = () => Object.entries(db.shopping).map(([id, v]) => shopOut(id, v)).sort((a, b) => (a.done - b.done) || (a.created - b.created));
+  const whereOf = (st, list) => { const c = db.where[st.toLowerCase()] || {}, o = {}; for (const e of list) if (!e.done && c[wkey(e.name)]) o[e.id] = c[wkey(e.name)]; return o; };
   if (path === "/api/shopping" && method === "GET"){
+    needUser(); const list = shopAll();
+    return { items: list, stores: db.stores, where: Object.fromEntries(db.stores.map(st => [st, whereOf(st, list)])) };
+  }
+  if (path === "/api/shop-stores"){
+    needUser(); if (!Array.isArray(body.stores)) demoErr(400, "Elenco dei negozi non valido");
+    const out = []; for (const x of body.stores){ const n = clean(x); if (!out.some(s => s.toLowerCase() === n.toLowerCase())) out.push(n); }
+    if (out.length > 8) demoErr(400, "Al massimo 8 negozi");
+    db.stores = out; save(); return { stores: out };
+  }
+  if (path === "/api/shopping/where"){
     needUser();
-    return { items: Object.entries(db.shopping).map(([id, v]) => shopOut(id, v)).sort((a, b) => (a.done - b.done) || (a.created - b.created)) };
+    const sm = await demoSampleP; if (!sm) demoErr(400, "Per la stima serve l'AI: collegala in Menu › Intelligenza artificiale");
+    const store = String(body.store || "").trim(); if (!db.stores.some(s => s.toLowerCase() === store.toLowerCase())) demoErr(400, "Scegli prima il negozio tra i preferiti");
+    const list = shopAll().filter(e => !e.done), have = body.fresh ? {} : whereOf(store, list);
+    const names = [...new Set(list.filter(e => !have[e.id]).map(e => e.name))].slice(0, 40);
+    if (names.length){
+      const others = db.stores.filter(s => s.toLowerCase() !== store.toLowerCase());
+      const prompt = `Conosci bene i supermercati italiani. Negozio: ${store}.
+Per ogni prodotto della lista dimmi se DI NORMA si trova in questo negozio, cioè se fa parte dell'assortimento abituale della catena in Italia (non la disponibilità di oggi in un punto vendita: quella non puoi saperla).
+Altri negozi che usiamo: ${others.join(", ") || "nessuno"}.
+
+Prodotti (come li scriviamo noi):
+${names.map((n, i) => `${i + 1}. ${n}`).join("\n")}
+
+Regole:
+- "trovi": true se di solito c'è (anche solo la versione a marchio del negozio va bene: dillo in "nota"); false se di solito non c'è.
+- Se "trovi" è false: in "alternativa" un prodotto simile che di norma c'è in ${store} e in "altrove" il nome di uno degli altri negozi che usiamo dove di norma si trova ("" se nessuno).
+- "nota": al massimo una frase breve, facoltativa. "certo": false se non sei sicuro.
+
+Rispondi SOLO con JSON valido: {"prodotti":[{"n":1,"trovi":true,"certo":true,"nota":"","alternativa":"","altrove":""}]}`;
+      let data;
+      try { data = await sm.json(prompt, { cache: !body.fresh }); }
+      catch (e) { demoErr(502, e && e.code === "not_granted" ? "Serve il tuo permesso per chiedere a Claude: riprova e consenti." : "Stima non riuscita: riprova"); }
+      const c = db.where[store.toLowerCase()] = db.where[store.toLowerCase()] || {};
+      for (const p of (data && data.prodotti) || []){
+        const i = parseInt(p.n); if (!(i >= 1 && i <= names.length)) continue;
+        c[wkey(names[i - 1])] = { trovi: !!p.trovi, certo: p.certo !== false, nota: String(p.nota || "").slice(0, 160),
+          alternativa: String(p.alternativa || "").slice(0, 120), altrove: String(p.altrove || "").slice(0, 40) };
+      }
+      save();
+    }
+    return { where: whereOf(store, shopAll()) };
   }
   if (path === "/api/shopping" && method === "POST"){ const u = needUser(); const [entry, created] = shopAdd(body, u); save(); return { entry, created }; }
   if (path === "/api/shopping" && method === "DELETE"){ needUser(); for (const k in db.shopping) if (db.shopping[k].done) delete db.shopping[k]; save(); return { ok: true }; }

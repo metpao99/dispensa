@@ -268,6 +268,19 @@ html,body{overscroll-behavior-y:none}   /* niente rimbalzo in fondo: su iOS tras
 .srow.done .stick{background:var(--accent);border-color:var(--accent)}
 .srow.done .stick svg{opacity:1}
 .srow.done .sn b{text-decoration:line-through;color:var(--muted);font-weight:500}
+/* dove si compra */
+.storechips{margin:12px -16px 0}
+.chip.ghost{border-style:dashed;color:var(--muted)}
+.storestatus{margin-top:8px}
+.storenote{margin:0;font-size:.8rem;color:var(--muted);background:var(--warn-bg);border-radius:8px;padding:8px 10px}
+.storestatus .thinking{padding:8px 0}
+.storestatus .status{margin:6px 0 0}
+.where{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;margin-top:3px;font-size:.8rem}
+.where .yes{color:var(--accent)}
+.where .no{color:var(--warn)}
+.where .unsure{color:var(--muted);margin-left:-6px}
+.slink{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
+.slink::after{content:" ↗"}
 .swipe .item{position:relative;touch-action:pan-y;transition:transform .18s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .toast{display:flex;gap:14px;align-items:center}
 .toast button{font:700 .9rem var(--sans);background:none;border:0;color:var(--bg);text-decoration:underline;padding:4px 2px}
@@ -374,6 +387,8 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     <input id="shopNew" maxlength="200" placeholder="Aggiungi, es. Latte" aria-label="Cosa comprare" enterkeyhint="done">
     <button class="btn primary" type="submit">Aggiungi</button>
   </form>
+  <div class="chips storechips" id="storeChips" role="group" aria-label="Negozio"></div>
+  <div class="storestatus" id="storeStatus" hidden></div>
   <div class="list shoplist" id="shopList"></div>
   <div class="actions" id="shopDoneRow" hidden><button class="btn" type="button" id="shopClear">Togli i comprati</button></div>
 </div>
@@ -520,6 +535,23 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     <div class="actions">
       <button class="btn" type="button" id="recipeMore">Altre idee</button>
       <button class="btn" type="button" id="recipeClose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<!-- negozi preferiti (spesa) -->
+<div class="sheet" id="storesSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="storesTitle">
+    <h2 id="storesTitle">Negozi preferiti</h2>
+    <p>Valgono per tutta la casa (al massimo 8). Nella Spesa tocca un negozio: l'assistente stima cosa trovi di solito lì e cosa prendere al posto di quello che manca. È una stima, non una verifica dello scaffale.</p>
+    <div class="picklist" id="storesList"></div>
+    <form class="addrow" id="storeAddForm" autocomplete="off" style="margin-top:10px">
+      <input id="storeNew" maxlength="40" placeholder="Altro negozio, es. Tigros" aria-label="Altro negozio">
+      <button class="btn" type="submit">Aggiungi</button>
+    </form>
+    <div class="actions">
+      <button class="btn primary" type="button" id="storesSave">Fatto</button>
+      <button class="btn" type="button" id="storesCancel">Annulla</button>
     </div>
   </div>
 </div>
