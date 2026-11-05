@@ -144,14 +144,17 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .tabbtn svg{width:25px;height:25px}
 .tabbtn[aria-selected="true"]{color:var(--accent)}
 .tabbtn:active{transform:scale(.92)}
-.lens{position:absolute;top:4px;left:4px;width:calc((100% - 8px) / 3);height:54px;border-radius:99px;z-index:0;
+.lens{position:absolute;top:4px;left:4px;width:calc((100% - 8px) / 4);height:54px;border-radius:99px;z-index:0;
   background:color-mix(in srgb,var(--fg) 9%,transparent);box-shadow:inset 0 1px 1px rgba(255,255,255,.35);
   transition:transform .5s cubic-bezier(.34,1.35,.5,1)}
-.tabs-pill[data-tab="recipes"] .lens{transform:translateX(100%)}
-.tabs-pill[data-tab="menu"] .lens{transform:translateX(200%)}
+.tabs-pill[data-tab="shop"] .lens{transform:translateX(100%)}
+.tabs-pill[data-tab="recipes"] .lens{transform:translateX(200%)}
+.tabs-pill[data-tab="menu"] .lens{transform:translateX(300%)}
 .tabs-pill.press .lens{transform:scale(1.08)}
-.tabs-pill.press[data-tab="recipes"] .lens{transform:translateX(100%) scale(1.08)}
-.tabs-pill.press[data-tab="menu"] .lens{transform:translateX(200%) scale(1.08)}
+.tabs-pill.press[data-tab="shop"] .lens{transform:translateX(100%) scale(1.08)}
+.tabs-pill.press[data-tab="recipes"] .lens{transform:translateX(200%) scale(1.08)}
+.tabs-pill.press[data-tab="menu"] .lens{transform:translateX(300%) scale(1.08)}
+.tbadge{position:absolute;top:4px;left:calc(50% + 5px);min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--bad);color:#fff;font:700 .66rem/18px var(--sans);text-align:center;pointer-events:none}
 .fab{position:absolute;right:max(12px,env(safe-area-inset-right));bottom:calc(100% + 12px);width:60px;height:60px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--accent-fg);
   background:color-mix(in srgb,var(--accent) 82%,transparent);transition:transform .35s cubic-bezier(.32,.72,0,1),opacity .25s}
 .fab svg{width:27px;height:27px}
@@ -245,6 +248,26 @@ html,body{overscroll-behavior-y:none}   /* niente rimbalzo in fondo: su iOS tras
 .swipe{position:relative;border-radius:8px;overflow:hidden}
 .swipe-bg{position:absolute;inset:0;background:var(--bad-bg);color:var(--bad);display:flex;align-items:center;justify-content:flex-end;padding:0 20px;font-weight:700;border-radius:8px;transition:background .15s,color .15s}
 .swipe-bg.armed{background:var(--bad);color:var(--card)}
+/* verso destra: nella spesa (verde, qualunque sia la tavolozza) */
+.swipe-bg.shop{justify-content:flex-start;background:#d8efd3;color:#1d6a2b}
+.swipe-bg.shop.armed{background:#2e8b3d;color:#fff}
+[data-dark] .swipe-bg.shop{background:#173a1d;color:#8fd69a}
+[data-dark] .swipe-bg.shop.armed{background:#2e8b3d;color:#fff}
+/* scheda Spesa */
+.shoplist{gap:8px;margin-top:12px}
+.shoplist .pickgroup{margin:8px 0 0}
+.item.srow{display:flex;align-items:center;gap:12px;padding:10px 10px 10px 12px;border-radius:12px}
+.swipe:has(.srow),.swipe:has(.srow) .swipe-bg{border-radius:12px}
+.srow .sn{flex:1;min-width:0}
+.srow .sn b{display:block;font-weight:600;overflow-wrap:anywhere}
+.srow .sn small{color:var(--muted);font-size:.78rem}
+.srow .qty button[disabled]{opacity:.35}
+.stick{flex:none;width:28px;height:28px;padding:0;border-radius:50%;border:2px solid var(--line);background:none;display:grid;place-items:center;cursor:pointer;transition:background .2s,border-color .2s}
+.stick svg{width:15px;height:15px;opacity:0;color:var(--accent-fg)}
+.srow.done{background:transparent}
+.srow.done .stick{background:var(--accent);border-color:var(--accent)}
+.srow.done .stick svg{opacity:1}
+.srow.done .sn b{text-decoration:line-through;color:var(--muted);font-weight:500}
 .swipe .item{position:relative;touch-action:pan-y;transition:transform .18s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .toast{display:flex;gap:14px;align-items:center}
 .toast button{font:700 .9rem var(--sans);background:none;border:0;color:var(--bg);text-decoration:underline;padding:4px 2px}
@@ -321,6 +344,11 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5 12 4l8 5.5V20H4z"/><path d="M4 13h16M9 13v3h6v-3"/></svg>
       <span>Dispensa</span>
     </button>
+    <button class="tabbtn" id="shopTab" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h2.6l2.4 11.2h10.9l2.1-8.2H6"/><circle cx="9.5" cy="19.6" r="1.4"/><circle cx="17.3" cy="19.6" r="1.4"/></svg>
+      <span>Spesa</span>
+      <b class="tbadge" id="shopBadge" hidden></b>
+    </button>
     <button class="tabbtn" id="recipesTab" role="tab" aria-selected="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11h16v2a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7z"/><path d="M2 11h2M20 11h2"/><path d="M9 7.5c0-1.2 1-1.5 1-2.7M13 7.5c0-1.2 1-1.5 1-2.7"/></svg>
       <span>Ricette</span>
@@ -335,6 +363,20 @@ details.more summary{cursor:pointer;font-size:.88rem;color:var(--muted);margin-t
     <svg class="ico-rec" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true" hidden><path d="M3 8.5h3.2l2-3h6.6l2 3H20v11H3z"/><circle cx="11.5" cy="14" r="3.6"/><path d="M20 1.8l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke="none"/></svg>
   </button>
 </nav>
+
+<!-- spesa: lista condivisa da tutta la casa -->
+<div class="wrap view" id="shopView" hidden>
+  <header>
+    <div><h1>Spesa</h1><p class="count" id="shopInfo"></p></div>
+  </header>
+  <p>La lista è condivisa con tutta la casa. Nella Dispensa scorri un prodotto verso destra per metterlo qui; spunta quello che hai comprato e torna in dispensa.</p>
+  <form class="addrow" id="shopAddForm" autocomplete="off">
+    <input id="shopNew" maxlength="200" placeholder="Aggiungi, es. Latte" aria-label="Cosa comprare" enterkeyhint="done">
+    <button class="btn primary" type="submit">Aggiungi</button>
+  </form>
+  <div class="list shoplist" id="shopList"></div>
+  <div class="actions" id="shopDoneRow" hidden><button class="btn" type="button" id="shopClear">Togli i comprati</button></div>
+</div>
 
 <!-- ricette: spunti i prodotti e l'AI propone le ricette -->
 <div class="wrap view" id="recipesView" hidden>

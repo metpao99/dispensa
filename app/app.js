@@ -2,7 +2,7 @@
 "use strict";
 /* Versione dell'app: si aumenta a ogni push su main (vedi CLAUDE.md).
    Piccole modifiche e correzioni: +0.1 (0.1 → 0.2). Miglioramenti grandi: unità (0.9 → 1.0). */
-const APP_VERSION = "0.4";
+const APP_VERSION = "0.5";
 const $ = id => document.getElementById(id);
 $("appVer").textContent = "Dispensa " + APP_VERSION;
 const SPACES_KEY = "dispensa-spaces", CUR_KEY = "dispensa-current-space";
@@ -18,7 +18,7 @@ let spaces = ls.get(SPACES_KEY, [{ id: "dispensa", name: "Dispensa" }, { id: "fr
 let current = ls.get(CUR_KEY, null);
 let aiOn = ls.get("dispensa-ai", false);
 let online = true, flushing = false;
-let filter = "Tutti", query = "", editing = null;
+let filter = "Tutti", query = "", editing = null, pendingBuy = null;   // pendingBuy: voce della spesa che si sta "comprando"
 
 /* ---------------- niente zoom: deve sembrare un'app ---------------- */
 for (const ev of ["gesturestart", "gesturechange", "gestureend"])
@@ -132,19 +132,21 @@ document.addEventListener("keydown", e => {
   if (open) dismissSheet(open.id);
 });
 
-/* ---------------- barra in basso: schede Dispensa / Menu ---------------- */
-const tabScroll = { home: 0, recipes: 0, menu: 0 };
+/* ---------------- barra in basso: schede Dispensa / Spesa / Ricette / Menu ---------------- */
+const tabScroll = { home: 0, shop: 0, recipes: 0, menu: 0 };
 let tab = "home";
 function showTab(name){
   if (name === tab) return;
   tabScroll[tab] = window.scrollY;
   tab = name;
-  const views = { home: $("homeView"), recipes: $("recipesView"), menu: $("menuView") };
+  const views = { home: $("homeView"), shop: $("shopView"), recipes: $("recipesView"), menu: $("menuView") };
   for (const k in views){ views[k].hidden = k !== name; views[k].classList.toggle("enter", k === name); }
   $("homeTab").setAttribute("aria-selected", name === "home");
+  $("shopTab").setAttribute("aria-selected", name === "shop");
   $("recipesTab").setAttribute("aria-selected", name === "recipes");
   $("menuBtn").setAttribute("aria-selected", name === "menu");
   if (name === "recipes") renderPick();
+  if (name === "shop"){ renderShop(); loadShopping(); }
   document.querySelector(".tabs-pill").dataset.tab = name;
   $("scanBtn").classList.toggle("off", name !== "home");
   window.scrollTo(0, tabScroll[name]);
@@ -152,11 +154,12 @@ function showTab(name){
 const toTop = () => window.scrollTo({ top: 0, behavior: "smooth" });   // ritocco della scheda già aperta: torna su
 $("homeTab").onclick = () => tab === "home" ? toTop() : showTab("home");
 $("recipesTab").onclick = () => tab === "recipes" ? toTop() : showTab("recipes");
+$("shopTab").onclick = () => tab === "shop" ? toTop() : showTab("shop");
 /* La "lente" della barra si trascina col dito, come in iOS: tieni premuto, scorri,
    lasci sopra una scheda e si apre quella. Un tocco semplice resta un tocco. */
 {
   const pill = document.querySelector(".tabs-pill"), lens = pill.querySelector(".lens");
-  const btns = [$("homeTab"), $("recipesTab"), $("menuBtn")], names = ["home", "recipes", "menu"];
+  const btns = [$("homeTab"), $("shopTab"), $("recipesTab"), $("menuBtn")], names = ["home", "shop", "recipes", "menu"];
   let g = null, skipClick = false;
   const geo = () => { const r = pill.getBoundingClientRect(), w = (r.width - 8) / btns.length; return { r, w }; };
   const indexAt = x => { const { r, w } = geo(); return Math.max(0, Math.min(btns.length - 1, Math.floor((x - r.left - 4) / w))); };
@@ -266,6 +269,7 @@ async function refresh(){
     items = r.items; if (r.spaces && r.spaces.length) spaces = r.spaces;
     aiOn = !!r.ai; ls.set("dispensa-ai", aiOn);
     saveLocal(); setOnline(true); render();
+    loadShopping();
   } catch (e) {
     if (e instanceof AuthError) showLogin(); else setOnline(false);
   }
@@ -600,12 +604,14 @@ $("themeMode").onchange = e => { ls.set("dispensa-theme", { ...themePrefs(), mod
 if (darkMQ.addEventListener) darkMQ.addEventListener("change", () => { applyTheme(); if (!$("menuView").hidden) renderPalettes(); });
 applyTheme();
 
-/* ---------------- scorri a sinistra per eliminare ---------------- */
-function swipeable(card, it){
-  const wrap = el("div", "swipe"), bg = el("div", "swipe-bg", "Elimina");
+/* ---------------- scorri una scheda: a sinistra elimina, a destra (se previsto) la mette nella spesa ----------------
+   Si muove solo la scheda; oltre il 40% della larghezza l'azione parte. acts = { left, leftLabel, right, rightLabel } */
+function swipeable(card, acts){
+  const wrap = el("div", "swipe"), bg = el("div", "swipe-bg");
   wrap.append(bg, card);
   let x0 = null, y0 = 0, dx = 0, drag = false, pid = null;
   const limit = () => card.offsetWidth * 0.4;
+  const side = right => { bg.classList.toggle("shop", right); bg.textContent = right ? acts.rightLabel : acts.leftLabel; };
   card.addEventListener("pointerdown", e => {
     if (e.button > 0) return;
     x0 = e.clientX; y0 = e.clientY; dx = 0; drag = false; pid = e.pointerId;
@@ -614,21 +620,27 @@ function swipeable(card, it){
     if (x0 === null || e.pointerId !== pid) return;
     const mx = e.clientX - x0, my = e.clientY - y0;
     if (!drag){
-      if (mx < -10 && Math.abs(mx) > Math.abs(my) * 1.5){ drag = true; card.style.transition = "none"; try { card.setPointerCapture(pid); } catch {} }
-      else if (Math.abs(my) > 10 || mx > 10){ x0 = null; return; }
+      const can = (mx < -10 && acts.left) || (mx > 10 && acts.right);
+      if (can && Math.abs(mx) > Math.abs(my) * 1.5){ drag = true; card.style.transition = "none"; side(mx > 0); try { card.setPointerCapture(pid); } catch {} }
+      else if (Math.abs(my) > 10 || Math.abs(mx) > 10){ x0 = null; return; }
       else return;
     }
-    dx = Math.min(0, mx);
+    dx = acts.left && acts.right ? mx : acts.right ? Math.max(0, mx) : Math.min(0, mx);
+    if (dx > 0 && !bg.classList.contains("shop")) side(true);
+    else if (dx < 0 && bg.classList.contains("shop")) side(false);
     card.style.transform = `translateX(${dx}px)`;
-    bg.classList.toggle("armed", -dx > limit());
+    bg.classList.toggle("armed", Math.abs(dx) > limit());
   });
   const end = () => {
     if (x0 === null) return;
     x0 = null; card.style.transition = "";
     if (!drag) return;
     drag = false; card.dataset.swiped = "1"; setTimeout(() => delete card.dataset.swiped, 60);
-    if (-dx > limit()){ card.style.transform = "translateX(-110%)"; setTimeout(() => deleteWithUndo(it), 170); }
-    else { card.style.transform = ""; bg.classList.remove("armed"); }
+    if (Math.abs(dx) > limit()){
+      const right = dx > 0;
+      card.style.transform = `translateX(${right ? 110 : -110}%)`;
+      setTimeout(() => (right ? acts.right : acts.left)(), 170);
+    } else { card.style.transform = ""; bg.classList.remove("armed"); }
   };
   // dopo un trascinamento nessun clic (né sulla scheda né su + e −)
   card.addEventListener("click", e => { if (card.dataset.swiped){ e.stopPropagation(); e.preventDefault(); } }, true);
@@ -641,6 +653,173 @@ function deleteWithUndo(it){
   remove(it.id);
   toast(`“${it.name}” eliminato`, "Annulla", () => { upsert({ ...copy, updated: Date.now() }); toast("Ripristinato"); });
 }
+
+/* ---------------- lista della spesa (condivisa da tutta la casa) ----------------
+   Le voci stanno sul NAS (tabella shopping); qui c'è una copia per mostrarle subito.
+   Scorrendo un prodotto verso destra va in lista UNA confezione (il NAS lo fa in un colpo solo);
+   spuntando "comprato" il prodotto torna in dispensa con la regola della nuova confezione. */
+const SHOP_KEY = "dispensa-shopping";
+let shopping = ls.get(SHOP_KEY, []);
+const TICK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const toBuy = () => shopping.filter(x => !x.done);
+function setShopping(list){
+  shopping = list; ls.set(SHOP_KEY, list); renderShopBadge();
+  if (tab === "shop") renderShop();
+}
+async function loadShopping(){
+  try {
+    const r = await api("GET", "/api/shopping");
+    if (JSON.stringify(r.items) !== JSON.stringify(shopping)) setShopping(r.items);   // niente ridisegno se non è cambiato nulla
+  } catch {}
+}
+function putEntry(e){
+  const l = [...shopping], i = l.findIndex(x => x.id === e.id);
+  i >= 0 ? l[i] = e : l.push(e); setShopping(l);
+}
+function dropEntry(id){ setShopping(shopping.filter(x => x.id !== id)); }
+function renderShopBadge(){
+  const n = toBuy().length, b = $("shopBadge");
+  b.hidden = !n; b.textContent = n > 99 ? "99+" : String(n);
+  $("shopTab").setAttribute("aria-label", n ? `Spesa, ${n} da comprare` : "Spesa");
+}
+const shopErr = e => e instanceof AuthError ? "Scegli prima chi sei" : e.status ? e.message : "Per la spesa serve la connessione al NAS";
+
+/* dalla dispensa alla lista: una confezione */
+async function toShopping(it){
+  if (queue.length) await flush();               // prima le modifiche in sospeso, così il NAS ha la quantità giusta
+  if (queue.length){ render(); toast("Per la spesa serve la connessione al NAS"); return; }
+  const copy = { ...it }, q = Number(it.qty) || 0;
+  items = q > 1 ? items.map(x => x.id === it.id ? { ...x, qty: q - 1 } : x) : items.filter(x => x.id !== it.id);
+  saveLocal(); render();
+  try {
+    const r = await api("POST", "/api/items/" + encodeURIComponent(it.id) + "/to-shopping", {});
+    items = r.item ? items.map(x => x.id === it.id ? r.item : x) : items.filter(x => x.id !== it.id);
+    saveLocal(); render(); putEntry(r.entry);
+    toast(`“${it.name}” nella spesa` + (r.item ? ` · in dispensa ne resta${r.item.qty === 1 ? "" : "no"} ${r.item.qty}` : ""),
+          "Annulla", () => undoToShopping(copy, r));
+  } catch (e) {
+    if (e.status !== 404) items = items.some(x => x.id === it.id) ? items.map(x => x.id === it.id ? copy : x) : [...items, copy];
+    saveLocal(); render(); toast(shopErr(e));
+  }
+}
+async function undoToShopping(copy, r){
+  upsert({ ...copy, updated: Date.now() });      // il prodotto torna com'era (passa dalla coda, anche offline)
+  try {
+    if (r.created){ await api("DELETE", "/api/shopping/" + encodeURIComponent(r.entry.id)); dropEntry(r.entry.id); }
+    else { const x = await api("PATCH", "/api/shopping/" + encodeURIComponent(r.entry.id), { qty: Math.max(1, r.entry.qty - 1) }); putEntry(x.entry); }
+    toast("Ripristinato");
+  } catch { toast("Prodotto ripristinato, ma la lista non si è aggiornata"); loadShopping(); }
+}
+
+/* comprato: il prodotto torna in dispensa come nuova confezione (quantità +n, scadenza da chiedere) */
+function buyEntry(e){
+  const n = Math.max(1, Number(e.qty) || 1);
+  const src = byCode(e.code) || (e.item && items.find(x => x.id === e.item)) ||
+              (!e.code && items.find(x => x.name.toLowerCase() === e.name.toLowerCase())) || null;
+  if (src){
+    openRestock(src, "", false, n);
+  } else {
+    openForm(null, e.code, { name: e.name, cat: e.cat }, "Comprato: aggiungi la scadenza della nuova confezione e salva.", true);
+    $("f-qty").value = n;
+    if (spaces.some(s => s.id === e.space)) $("f-space").value = e.space;
+  }
+  pendingBuy = e.id;                             // dopo "Salva" la voce si spunta (vedi form.onsubmit)
+}
+async function markBought(id, name){
+  const e = shopping.find(x => x.id === id); if (e) putEntry({ ...e, done: true });
+  toast(`Comprato: “${name}” è di nuovo in dispensa`);
+  try { const r = await api("PATCH", "/api/shopping/" + encodeURIComponent(id), { done: true }); putEntry(r.entry); }
+  catch (err) { toast("In dispensa sì, ma la lista non si è aggiornata: " + shopErr(err)); loadShopping(); }
+}
+async function patchEntry(e, change, okText){
+  putEntry({ ...e, ...change });
+  try { const r = await api("PATCH", "/api/shopping/" + encodeURIComponent(e.id), change); putEntry(r.entry); if (okText) toast(okText); }
+  catch (err) { toast(shopErr(err)); loadShopping(); }
+}
+async function dropWithUndo(e){
+  dropEntry(e.id);
+  try { await api("DELETE", "/api/shopping/" + encodeURIComponent(e.id)); }
+  catch (err) { toast(shopErr(err)); loadShopping(); return; }
+  toast(`“${e.name}” tolto dalla lista`, "Annulla", async () => {
+    try {
+      let r = await api("POST", "/api/shopping", { name: e.name, cat: e.cat, code: e.code, qty: e.qty, space: e.space, item: e.item });
+      if (e.done) r = await api("PATCH", "/api/shopping/" + encodeURIComponent(r.entry.id), { done: true });
+      putEntry(r.entry); toast("Ripristinato");
+    } catch (err) { toast(shopErr(err)); }
+  });
+}
+function shopRow(e){
+  const row = el("div", "item srow" + (e.done ? " done" : ""));
+  const t = el("button", "stick"); t.type = "button"; t.innerHTML = TICK_SVG;
+  t.setAttribute("aria-label", e.done ? `Rimetti “${e.name}” da comprare` : `Comprato “${e.name}”: torna in dispensa`);
+  t.onclick = ev => {
+    ev.stopPropagation();
+    if (e.done) patchEntry(e, { done: false }, "Di nuovo da comprare (in dispensa non cambia nulla)");
+    else buyEntry(e);
+  };
+  const sn = el("div", "sn"); sn.append(el("b", null, e.name));
+  const sp = e.item && spaces.find(s => s.id === e.space);
+  const bits = [e.done && e.qty > 1 ? "×" + e.qty : "", e.cat, sp ? "da " + sp.name : "", e.addedBy ? "messo da " + e.addedBy : ""].filter(Boolean);
+  if (bits.length) sn.append(el("small", null, bits.join(" · ")));
+  row.append(t, sn);
+  if (!e.done){
+    const qty = el("div", "qty");
+    const minus = el("button", null, "−"); minus.type = "button"; minus.setAttribute("aria-label", "Uno in meno"); minus.disabled = e.qty <= 1;
+    const plus = el("button", null, "+"); plus.type = "button"; plus.setAttribute("aria-label", "Uno in più");
+    minus.onclick = ev => { ev.stopPropagation(); if (e.qty > 1) patchEntry(e, { qty: e.qty - 1 }); };
+    plus.onclick = ev => { ev.stopPropagation(); patchEntry(e, { qty: Math.min(99, e.qty + 1) }); };
+    qty.append(minus, el("output", null, String(e.qty)), plus);
+    row.append(qty);
+  }
+  return swipeable(row, { left: () => dropWithUndo(e), leftLabel: "Togli" });
+}
+function renderShop(){
+  const list = $("shopList"); list.textContent = "";
+  const todo = toBuy(), done = shopping.filter(x => x.done);
+  $("shopInfo").textContent = shopping.length ? `${todo.length} da comprare` + (done.length ? ` · ${done.length} comprati` : "") : "";
+  $("shopDoneRow").hidden = !done.length;
+  if (!shopping.length){
+    const e = el("div", "empty"); e.append(el("strong", null, "La lista è vuota"),
+      "Scrivi qui sopra cosa comprare, oppure nella Dispensa scorri un prodotto verso destra.");
+    list.append(e); return;
+  }
+  if (!todo.length) list.append(el("div", "empty", "Tutto comprato!"));
+  // da comprare, per categoria (in negozio si trova prima)
+  const groups = new Map();
+  for (const e of todo){ const c = (e.cat || "").trim() || NO_CAT; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(e); }
+  const order = [...groups.keys()].sort((a, b) => a === NO_CAT ? 1 : b === NO_CAT ? -1 : a.localeCompare(b, "it"));
+  for (const c of order){
+    if (order.length > 1) list.append(el("div", "pickgroup", c));
+    const body = el("div", "gbody");
+    groups.get(c).sort((a, b) => a.name.localeCompare(b.name, "it")).forEach(e => body.append(shopRow(e)));
+    list.append(body);
+  }
+  if (done.length){
+    list.append(el("div", "pickgroup", "Comprati"));
+    const body = el("div", "gbody");
+    done.forEach(e => body.append(shopRow(e)));
+    list.append(body);
+  }
+}
+$("shopAddForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const name = $("shopNew").value.trim(); if (!name) return;
+  // se in casa c'è già un prodotto con questo nome, la voce ne prende codice, categoria e ambiente
+  const src = items.find(x => x.name.toLowerCase() === name.toLowerCase());
+  const body = src ? { name: src.name, cat: src.cat, code: src.code, space: spaceOf(src), item: src.id } : { name };
+  try {
+    const r = await api("POST", "/api/shopping", { ...body, qty: 1 });
+    putEntry(r.entry); $("shopNew").value = "";
+    if (!r.created) toast(`Era già in lista: ora ×${r.entry.qty}`);
+  } catch (e) { toast(shopErr(e)); }
+};
+let clearArmed = false;
+$("shopClear").onclick = async () => {
+  if (!clearArmed){ clearArmed = true; $("shopClear").textContent = "Tocca di nuovo per togliere i comprati"; setTimeout(() => { clearArmed = false; $("shopClear").textContent = "Togli i comprati"; }, 4000); return; }
+  clearArmed = false; $("shopClear").textContent = "Togli i comprati";
+  try { await api("DELETE", "/api/shopping"); setShopping(toBuy()); toast("Comprati tolti dalla lista"); }
+  catch (e) { toast(shopErr(e)); }
+};
 
 /* ---------------- avvisi di scadenza (notifiche) ---------------- */
 for (let h = 6; h <= 22; h++){ const o = el("option", null, String(h).padStart(2, "0") + ":00"); o.value = h; $("n-hour").append(o); }
@@ -1124,7 +1303,8 @@ function render(){
       sec.append(h);
     }
     const body = el("div", "gbody" + (compact ? " compact" : ""));
-    for (const it of its) body.append(swipeable(itemCard(it, compact), it));
+    for (const it of its) body.append(swipeable(itemCard(it, compact),
+      { left: () => deleteWithUndo(it), leftLabel: "Elimina", right: () => toShopping(it), rightLabel: "Spesa" }));
     sec.append(body); list.append(sec);
   }
   renderListbar(order, headers && !searching);
@@ -1137,7 +1317,7 @@ function bump(it, d){
 
 /* ---------------- scheda prodotto ---------------- */
 function openForm(it, code, template, note, noFocus, instant){
-  editing = it || null;
+  editing = it || null; pendingBuy = null;
   const t = template || {};
   $("sheetTitle").textContent = it ? "Modifica prodotto" : "Nuovo prodotto";
   $("sheetCode").textContent = note || (!it && code ? "Codice letto: " + code : "");
@@ -1156,14 +1336,15 @@ function openForm(it, code, template, note, noFocus, instant){
   openSheet("sheet", instant);
   if (!it && !noFocus) setTimeout(() => $("f-name").focus(), 80);
 }
-function closeForm(){ closeSheet("sheet"); editing = null; }
+function closeForm(){ closeSheet("sheet"); editing = null; pendingBuy = null; }
 sheetClosers.sheet = closeForm;
 $("cancelBtn").onclick = closeForm;
 $("sheet").onclick = e => { if (e.target.id === "sheet") closeForm(); };
 $("form").noValidate = true;     // la verifica di Safari nella web app può bloccare senza dire niente
 $("form").onsubmit = e => {
   e.preventDefault();
-  try { saveForm(); }
+  const pb = pendingBuy, name = $("f-name").value.trim();
+  try { if (saveForm() && pb) markBought(pb, name); }
   catch (err) { console.error(err); toast("Non salvato: " + (err.message || "errore imprevisto")); }
 };
 function saveForm(){
@@ -1180,11 +1361,12 @@ function saveForm(){
   if (same){        // codice scritto a mano che esiste già: aggiungo le confezioni a quel prodotto
     const n = (Number(same.qty) || 0) + it.qty;
     upsert({ ...same, qty: n, exp: it.exp || same.exp, updated: Date.now() }); closeForm();
-    toast(`Aggiunto a “${same.name}”: ora ${n}`); return;
+    toast(`Aggiunto a “${same.name}”: ora ${n}`); return true;
   }
   const moved = editing && spaceOf(editing) !== it.space;
   upsert(it); closeForm();
   toast(moved ? "Spostato in " + (spaces.find(s => s.id === it.space) || {}).name : "Salvato");
+  return true;
 }
 let delArmed = false;
 $("delBtn").onclick = () => {
@@ -1206,9 +1388,9 @@ function byCode(code, exceptId){
   return all.find(x => spaceOf(x) === curSpace().id) || all[0] || null;
 }
 const spaceName = it => (spaces.find(s => s.id === spaceOf(it)) || {}).name || "un altro ambiente";
-function openRestock(found, exp, instant){
+function openRestock(found, exp, instant, add){
   openForm(found, "", null, "", true, instant);
-  const n = (Number(found.qty) || 0) + 1;
+  const n = (Number(found.qty) || 0) + (add || 1);
   $("f-qty").value = n;
   if (exp) $("f-exp").value = exp;
   $("sheetTitle").textContent = "Nuova confezione";
@@ -1440,7 +1622,7 @@ $("importFile").onchange = async e => {
 };
 
 /* ---------------- avvio ---------------- */
-setMe(me); render();
+setMe(me); render(); renderShopBadge();
 (async () => {
   try {
     const r = await api("GET", "/api/me");

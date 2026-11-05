@@ -13,6 +13,14 @@ L'app parte con due ambienti, Dispensa e Frigo, ognuno con la sua lista (schede 
 "+ Ambiente" ne aggiunge altri (Freezer, Cantina…); rinominare o rimuovere: Menu › Ambienti.
 La scansione aggiunge il prodotto all'ambiente aperto; per spostarlo, cambia "Ambiente" nella sua scheda.
 
+## Lista della spesa (scheda Spesa)
+È una sola lista, condivisa da tutte le persone di casa. Ci si aggiunge in due modi:
+- nella Dispensa, scorri un prodotto **verso destra** (sfondo verde "Spesa"): va in lista una confezione
+  (se ne avevi più di una la quantità scende di 1, se era l'ultima il prodotto sparisce dalla dispensa); "Annulla" la rimette;
+- nella scheda Spesa, scrivi il nome e tocca Aggiungi. Lo stesso prodotto (stesso codice a barre) non si ripete: aumenta la quantità.
+Quando l'hai comprato tocca il cerchio: si apre la scheda del prodotto come "nuova confezione", metti la scadenza e Salva.
+"Togli i comprati" pulisce la lista. Scorrere a sinistra una voce la toglie.
+
 ## Intelligenza artificiale: collegarla dall'app (Menu › Intelligenza artificiale)
 Solo la prima persona creata (la proprietaria) vede e cambia queste impostazioni.
 **Con il tuo abbonamento Claude (solo per te), tramite Claude Code:**

@@ -17,7 +17,7 @@ Quando si progetta qualcosa adesso, tenerne conto: i dati dei prodotti (nome, ca
 scadenza, codice) sono la base di spesa e ricette, quindi vanno tenuti puliti e coerenti (vedi la
 regola del codice a barre). L'AI passa sempre da `generate()` nel server.
 
-## Stato del lavoro e prossimi passi (aggiornato al 3 novembre 2026, v0.4)
+## Stato del lavoro e prossimi passi (aggiornato al 5 novembre 2026, v0.5)
 Da qui si riparte: aggiornare questa sezione alla fine di ogni sessione di lavoro.
 
 **Fatto finora** (dettagli in `git log`):
@@ -34,14 +34,24 @@ Da qui si riparte: aggiornare questa sezione alla fine di ogni sessione di lavor
 - Scheda Ricette: prodotti da spuntare + richieste facoltative → ricette dall'AI, ricettario.
   Restano le "Idee per cosa scade" nella pagina Dispensa.
 - Lista Dispensa: sezioni per categoria richiudibili (ricordate) e interruttore "Schede / Righe".
+- **Lista della spesa (v0.5)**, prima parte della tappa 2: scheda "Spesa" nella barra in basso (quattro schede,
+  badge col numero di voci da comprare), lista unica condivisa da tutta la casa (tabella `shopping`).
+  Scorrere un prodotto a destra (sfondo verde, soglia 40%, "Annulla") sposta UNA confezione in lista
+  (`POST /api/items/<id>/to-shopping`, atomico); a sinistra continua a eliminare. Aggiunta a mano; stesso codice
+  (o, senza codice, stesso nome) = quantità +1. Spuntando "comprato" si apre la scheda come nuova confezione
+  (`buyEntry()` → `openRestock(…, n)` o scheda nuova precompilata); al "Salva" la voce si spunta (`pendingBuy`).
 
 **Da verificare sul telefono** (corretti senza poterli riprodurre sul NAS):
+- v0.5 (sul NAS non c'è un browser): scorrimento a destra/sinistra nelle due viste (schede e righe), lente della
+  barra con quattro schede, badge, giro completo spesa → comprato → nuova confezione;
 - nel Menu la barra in basso scorreva con la pagina (v0.1: niente rimbalzo + overflow-x clip):
   la proprietaria non ha ancora confermato che sia risolto;
 - schermo che restava congelato dopo la foto dal pulsante rotondo (v0.x, `whenVisible` + `repaint`):
   confermato che ora la scheda si apre e si compila.
 
 **Idee già discusse, non ancora fatte** (in ordine di priorità proposto):
+0. **Spesa, fase 2 (v0.6):** negozi preferiti, stima AI "trovi qui / non trovi qui" con alternativa (in cache),
+   pulsante "Cerca su <negozio>".
 1. Foto dello **scontrino**: l'AI legge la spesa e propone tutti i prodotti da aggiungere in un colpo
    (deve rispettare la regola del codice a barre e quella della nuova confezione).
 2. **Panoramica** in cima alla lista: riquadri "In scadenza / Finiti / Totale / per ambiente" che
@@ -86,8 +96,11 @@ in casa http://192.168.1.202:8765, con Tailscale https://nas-dispensa.tailc2b502
 - Pannelli (`.sheet`): aprili e chiudili con `openSheet(id)` / `closeSheet(id)`, non con `.hidden`,
   così hanno l'animazione e il gesto "tira giù per chiudere". Se la chiusura deve fare altro, registrala
   in `sheetClosers[id]` (es. `closeForm` per la scheda prodotto).
-- Navigazione: barra in basso con tre schede, `homeView`, `recipesView` (ricette dai prodotti spuntati) e `menuView`;
-  si cambia con `showTab("home"|"recipes"|"menu")`.
+- Navigazione: barra in basso con quattro schede, `homeView`, `shopView` (lista della spesa), `recipesView`
+  (ricette dai prodotti spuntati) e `menuView`; si cambia con `showTab("home"|"shop"|"recipes"|"menu")`.
+  Aggiungendo una scheda vanno aggiornati anche la larghezza e le posizioni di `.lens` nel CSS.
+- Scorrimento delle schede: `swipeable(card, { left, leftLabel, right, rightLabel })` (si muove solo la scheda).
+- Spesa: ogni nuovo modo di riportare in dispensa ciò che si è comprato passa da `buyEntry()` (regola del codice a barre).
 
 ## Pubblicare una modifica
 0. **Numero di versione — obbligatorio a ogni push su `main`.** Aumenta `APP_VERSION` in cima ad

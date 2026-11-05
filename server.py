@@ -28,6 +28,13 @@ API
   GET    /api/product/<code> nome, marca, formato e categoria da Open Food Facts (con cache nel database)
   PUT    /api/items/<id>     crea/aggiorna un prodotto
   DELETE /api/items/<id>     elimina un prodotto
+  POST   /api/items/<id>/to-shopping  sposta UNA confezione nella lista della spesa (atomico): aggiunge in lista
+                             (stesso codice o stesso nome = quantità +1) e poi toglie 1 dalla dispensa
+                             (quantità 1 o 0: il prodotto viene eliminato). -> {"entry", "created", "item"|null}
+  GET    /api/shopping       lista della spesa condivisa: {"items": [...]}
+  POST   /api/shopping       {"name", "cat", "code", "qty", "space"} aggiunge una voce (stesso codice = quantità +qty)
+  PATCH  /api/shopping/<id>  {"qty"?, "done"?, "name"?, "cat"?} cambia quantità, "comprato", nome, categoria
+  DELETE /api/shopping/<id>  toglie una voce; DELETE /api/shopping toglie tutte quelle spuntate (comprate)
   GET    /api/update         versione installata e ultima su GitHub (controllo ogni 10 minuti; per la proprietaria anche all'apertura)
   POST   /api/update/check   controlla subito GitHub (solo la proprietaria)
   POST   /api/update/run     avvia update.py: copia del database, aggiornamento, riavvio (solo la proprietaria)
@@ -587,6 +594,12 @@ def db():
             CREATE TABLE IF NOT EXISTS items(
                 id TEXT PRIMARY KEY, data TEXT NOT NULL,
                 updated INTEGER NOT NULL, updated_by TEXT);
+            CREATE TABLE IF NOT EXISTS shopping(
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, cat TEXT NOT NULL DEFAULT '',
+                code TEXT NOT NULL DEFAULT '', qty INTEGER NOT NULL DEFAULT 1,
+                done INTEGER NOT NULL DEFAULT 0, space TEXT NOT NULL DEFAULT '',
+                item_id TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL,
+                updated INTEGER NOT NULL, added_by TEXT);
         """)
         if not _db.execute("SELECT 1 FROM spaces").fetchone():
             _db.executemany("INSERT INTO spaces VALUES (?,?,?)", [("dispensa", "Dispensa", 0), ("frigo", "Frigo", 1)])
@@ -629,6 +642,54 @@ def clean_item(body):
         it[k] = str(it[k] or "").strip()[:100]
     it["note"] = str(it["note"] or "").strip()[:2000]
     return it
+
+
+# ---------- lista della spesa ----------
+MAX_SHOPPING = 300
+
+
+def shop_out(r):
+    return {"id": r["id"], "name": r["name"], "cat": r["cat"], "code": r["code"], "qty": r["qty"],
+            "done": bool(r["done"]), "space": r["space"], "item": r["item_id"],
+            "created": r["created"], "updated": r["updated"], "addedBy": r["added_by"]}
+
+
+def shop_list():
+    rows = db().execute("SELECT * FROM shopping ORDER BY done, created").fetchall()
+    return [shop_out(r) for r in rows]
+
+
+def shop_add(name, cat="", code="", qty=1, space="", item_id="", user=""):
+    """Aggiunge una voce senza fare commit (chi chiama decide). Stesso codice a barre (o, senza codice,
+    stesso nome) di una voce non ancora comprata: aumenta la quantità invece di creare un doppione.
+    Restituisce (voce, creata)."""
+    name = " ".join(str(name or "").split())[:200]
+    if not name:
+        raise ValueError("Scrivi cosa comprare")
+    code = str(code or "").strip()[:100]
+    cat, space, item_id = (str(v or "").strip()[:100] for v in (cat, space, item_id))
+    try:
+        qty = max(1, min(99, int(float(qty or 1))))
+    except (TypeError, ValueError):
+        qty = 1
+    now = int(time.time() * 1000)
+    same = None
+    for r in db().execute("SELECT * FROM shopping WHERE done = 0"):
+        if (code and r["code"] == code) or (not code and r["name"].casefold() == name.casefold()):
+            same = r
+            break
+    if same:
+        db().execute("UPDATE shopping SET qty = MIN(99, qty + ?), updated = ?, "
+                     "cat = CASE WHEN cat = '' THEN ? ELSE cat END, space = CASE WHEN space = '' THEN ? ELSE space END, "
+                     "item_id = CASE WHEN ? != '' THEN ? ELSE item_id END WHERE id = ?",
+                     (qty, now, cat, space, item_id, item_id, same["id"]))
+        return shop_out(db().execute("SELECT * FROM shopping WHERE id = ?", (same["id"],)).fetchone()), False
+    if db().execute("SELECT COUNT(*) FROM shopping").fetchone()[0] >= MAX_SHOPPING:
+        raise ValueError(f"La lista ha già {MAX_SHOPPING} voci: togli quelle comprate")
+    sid = "p" + secrets.token_hex(6)
+    db().execute("INSERT INTO shopping(id, name, cat, code, qty, done, space, item_id, created, updated, added_by) "
+                 "VALUES (?,?,?,?,?,0,?,?,?,?,?)", (sid, name, cat, code, qty, space, item_id, now, now, user))
+    return shop_out(db().execute("SELECT * FROM shopping WHERE id = ?", (sid,)).fetchone()), True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -764,6 +825,11 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 rows = db().execute("SELECT id, data, saved_by FROM recipes ORDER BY created DESC").fetchall()
             return self.send_json(200, {"recipes": [dict(json.loads(r["data"]), id=r["id"], savedBy=r["saved_by"]) for r in rows]})
+        if path == "/api/shopping":
+            if not self.need_user():
+                return
+            with _lock:
+                return self.send_json(200, {"items": shop_list()})
         if path.startswith("/api/"):
             return self.send_json(404, {"error": "Non trovato"})
         return self.serve_static(path)
@@ -963,6 +1029,50 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(502, {"error": str(e)})
                 except (ValueError, KeyError):
                     return self.send_json(502, {"error": "Risposta AI non leggibile: riprova"})
+            if path == "/api/shopping":
+                u = self.need_user()
+                if not u:
+                    return
+                b = self.read_json()
+                with _lock:
+                    try:
+                        entry, created = shop_add(b.get("name"), b.get("cat"), b.get("code"), b.get("qty") or 1,
+                                                  b.get("space"), b.get("item"), u["name"])
+                        db().commit()
+                    except Exception:
+                        db().rollback()
+                        raise
+                return self.send_json(200, {"entry": entry, "created": created})
+            mt = re.match(r"^/api/items/([^/]+)/to-shopping$", path)
+            if mt:
+                u = self.need_user()
+                if not u:
+                    return
+                item_id = mt.group(1)
+                now = int(time.time() * 1000)
+                with _lock:
+                    row = db().execute("SELECT data FROM items WHERE id = ?", (item_id,)).fetchone()
+                    if not row:
+                        return self.send_json(404, {"error": "Prodotto non trovato: forse l'ha già tolto qualcun altro"})
+                    it = json.loads(row["data"])
+                    try:
+                        # prima in lista, poi via dalla dispensa: tutto nella stessa transazione
+                        entry, created = shop_add(it.get("name"), it.get("cat"), it.get("code"), 1,
+                                                  it.get("space"), item_id, u["name"])
+                        q = int(it.get("qty") or 0)
+                        if q > 1:
+                            it["qty"] = q - 1
+                            db().execute("UPDATE items SET data = ?, updated = ?, updated_by = ? WHERE id = ?",
+                                         (json.dumps(it, ensure_ascii=False), now, u["name"], item_id))
+                            out = dict(it, id=item_id, updated=now, updatedBy=u["name"])
+                        else:
+                            db().execute("DELETE FROM items WHERE id = ?", (item_id,))
+                            out = None
+                        db().commit()
+                    except Exception:
+                        db().rollback()
+                        raise
+                return self.send_json(200, {"entry": entry, "created": created, "item": out})
             if path == "/api/logout":
                 jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
                 if COOKIE in jar:
@@ -975,6 +1085,39 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(404, {"error": "Non trovato"})
 
     def do_PATCH(self):
+        msh = re.match(r"^/api/shopping/([^/]+)$", urlparse(self.path).path)
+        if msh:
+            if not self.need_user():
+                return
+            try:
+                body = self.read_json()
+                sets, vals = [], []
+                if "qty" in body:
+                    try:
+                        q = int(float(body["qty"] or 1))
+                    except (TypeError, ValueError):
+                        raise ValueError("Quantità non valida")
+                    sets.append("qty = ?"); vals.append(max(1, min(99, q)))
+                if "done" in body:
+                    sets.append("done = ?"); vals.append(1 if body["done"] else 0)
+                if "name" in body:
+                    n = " ".join(str(body["name"] or "").split())[:200]
+                    if not n:
+                        raise ValueError("Scrivi cosa comprare")
+                    sets.append("name = ?"); vals.append(n)
+                if "cat" in body:
+                    sets.append("cat = ?"); vals.append(str(body["cat"] or "").strip()[:100])
+            except (ValueError, TypeError, json.JSONDecodeError) as e:
+                return self.send_json(400, {"error": str(e) or "Dati non validi"})
+            with _lock:
+                if sets:
+                    db().execute(f"UPDATE shopping SET {', '.join(sets)}, updated = ? WHERE id = ?",
+                                 (*vals, int(time.time() * 1000), msh.group(1)))
+                    db().commit()
+                row = db().execute("SELECT * FROM shopping WHERE id = ?", (msh.group(1),)).fetchone()
+            if not row:
+                return self.send_json(404, {"error": "Voce non trovata: forse l'ha già tolta qualcun altro"})
+            return self.send_json(200, {"entry": shop_out(row)})
         if urlparse(self.path).path == "/api/spaces":
             if not self.need_user():
                 return
@@ -1057,6 +1200,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with _lock:
                 db().execute("DELETE FROM recipes WHERE id = ?", (mr.group(1),))
+                db().commit()
+            return self.send_json(200, {"ok": True})
+        if path == "/api/shopping" or path.startswith("/api/shopping/"):
+            if not self.need_user():
+                return
+            with _lock:
+                if path == "/api/shopping":
+                    db().execute("DELETE FROM shopping WHERE done = 1")
+                else:
+                    db().execute("DELETE FROM shopping WHERE id = ?", (unquote(path[len("/api/shopping/"):]),))
                 db().commit()
             return self.send_json(200, {"ok": True})
         ms = re.match(r"^/api/spaces/([^/]+)$", path)

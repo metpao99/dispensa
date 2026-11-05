@@ -113,6 +113,47 @@ async function api(method, path, body, blob){
     const sm = await demoSampleP;
     return { items: Object.entries(db.items).map(([id, v]) => ({ ...v, id })), spaces: db.spaces, ai: !!sm, now: Date.now() };
   }
+  // lista della spesa (come shop_add e le API /api/shopping di server.py)
+  db.shopping = db.shopping || {};
+  const shopOut = (id, v) => ({ ...v, id });
+  const shopAdd = (b, user) => {
+    const name = String(b.name || "").split(/\s+/).filter(Boolean).join(" ").slice(0, 200); if (!name) demoErr(400, "Scrivi cosa comprare");
+    const code = String(b.code || "").trim(), qty = Math.max(1, Math.min(99, parseInt(b.qty) || 1)), now = Date.now();
+    const same = Object.entries(db.shopping).find(([, v]) => !v.done && (code ? v.code === code : v.name.toLowerCase() === name.toLowerCase()));
+    if (same){
+      const v = same[1]; v.qty = Math.min(99, v.qty + qty); v.updated = now;
+      if (!v.cat) v.cat = String(b.cat || ""); if (!v.space) v.space = String(b.space || ""); if (b.item) v.item = String(b.item);
+      return [shopOut(same[0], v), false];
+    }
+    const id = "p" + newId();
+    db.shopping[id] = { name, cat: String(b.cat || ""), code, qty, done: false, space: String(b.space || ""), item: String(b.item || ""), created: now, updated: now, addedBy: user };
+    return [shopOut(id, db.shopping[id]), true];
+  };
+  if (path === "/api/shopping" && method === "GET"){
+    needUser();
+    return { items: Object.entries(db.shopping).map(([id, v]) => shopOut(id, v)).sort((a, b) => (a.done - b.done) || (a.created - b.created)) };
+  }
+  if (path === "/api/shopping" && method === "POST"){ const u = needUser(); const [entry, created] = shopAdd(body, u); save(); return { entry, created }; }
+  if (path === "/api/shopping" && method === "DELETE"){ needUser(); for (const k in db.shopping) if (db.shopping[k].done) delete db.shopping[k]; save(); return { ok: true }; }
+  if ((m = path.match(/^\/api\/shopping\/(.+)$/))){
+    needUser(); const id = decodeURIComponent(m[1]);
+    if (method === "DELETE"){ delete db.shopping[id]; save(); return { ok: true }; }
+    const v = db.shopping[id]; if (!v) demoErr(404, "Voce non trovata: forse l'ha già tolta qualcun altro");
+    if ("qty" in body) v.qty = Math.max(1, Math.min(99, parseInt(body.qty) || 1));
+    if ("done" in body) v.done = !!body.done;
+    if ("name" in body){ const n = String(body.name || "").trim().slice(0, 200); if (!n) demoErr(400, "Scrivi cosa comprare"); v.name = n; }
+    if ("cat" in body) v.cat = String(body.cat || "").slice(0, 100);
+    v.updated = Date.now(); save(); return { entry: shopOut(id, v) };
+  }
+  if ((m = path.match(/^\/api\/items\/(.+)\/to-shopping$/))){
+    const u = needUser(), id = decodeURIComponent(m[1]), it = db.items[id];
+    if (!it) demoErr(404, "Prodotto non trovato: forse l'ha già tolto qualcun altro");
+    const [entry, created] = shopAdd({ ...it, qty: 1, item: id }, u);
+    let out = null;
+    if ((parseInt(it.qty) || 0) > 1){ it.qty = parseInt(it.qty) - 1; it.updated = Date.now(); it.updatedBy = u; out = { ...it, id }; }
+    else delete db.items[id];
+    save(); return { entry, created, item: out };
+  }
   if ((m = path.match(/^\/api\/items\/(.+)$/))){
     const u = needUser(), id = decodeURIComponent(m[1]);
     if (method === "DELETE"){ delete db.items[id]; save(); return { ok: true }; }
